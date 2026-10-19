@@ -13,6 +13,10 @@ bun run tauri dev
 
 `bun run check` runs Svelte and TypeScript diagnostics, `bun run build` builds the frontend, `bun run tauri build` packages the app, and `cargo test --manifest-path src-tauri/Cargo.toml` runs the Rust tests.
 
+## Continuous integration
+
+The `Build Windows app` workflow runs on pushes and pull requests targeting `main`, and can also be started manually from GitHub Actions. It installs the locked Bun dependencies, runs Svelte/TypeScript diagnostics and Rust tests, then builds the Windows app. Successful runs publish the executable, MSI installer, and NSIS installer as a workflow artifact retained for 14 days.
+
 Icons: only `32x32.png`, `128x128.png` and `icon.ico` are committed. For macOS or mobile builds run `bun run tauri icon icon.png` first.
 
 Mobile: `bun run tauri android init` or (macOS) `bun run tauri ios init`; device builds need the platform SDKs.
