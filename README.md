@@ -15,11 +15,11 @@ bun run tauri dev
 
 ## Continuous integration
 
-The `Build Windows app` workflow runs on pushes and pull requests targeting `main`, and can also be started manually from GitHub Actions. It installs the locked Bun dependencies, runs Svelte/TypeScript diagnostics and Rust tests, then builds the Windows app. Successful runs publish the executable, MSI installer, and NSIS installer as a workflow artifact retained for 14 days.
+The `Build Daylight apps` workflow runs on pushes and pull requests targeting `main`, version tags (`v*`), and manual dispatch. It checks and builds Windows, Linux, macOS, Android, and iOS on their native runners. Version-tag releases publish the Windows executable and installers, Linux DEB, and macOS DMG. Android APKs are retained as workflow artifacts for 14 days; the iOS build is unsigned and validated in CI only because Apple signing credentials are not configured.
 
-Icons: only `32x32.png`, `128x128.png` and `icon.ico` are committed. For macOS or mobile builds run `bun run tauri icon icon.png` first.
+The macOS and mobile jobs generate platform-specific icons from the committed `src-tauri/icons/128x128.png` before building.
 
-Mobile: `bun run tauri android init` or (macOS) `bun run tauri ios init`; device builds need the platform SDKs.
+Mobile projects are initialized by CI with the Tauri CLI. Local device builds still need the Android SDK/NDK or Xcode and appropriate signing configuration for distribution.
 
 ## Structure
 
