@@ -1,0 +1,378 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* =====================================================================
+   Design tokens
+   Everything visual hangs off these variables, so a new theme, accent or
+   font is just another block of overrides (see the data-* selectors).
+   ===================================================================== */
+
+/* Dark is the default */
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: oklch(0.145 0.004 286);
+  --foreground: oklch(0.97 0 0);
+  --card: oklch(0.2 0.005 286);
+  --card-foreground: oklch(0.97 0 0);
+  --popover: oklch(0.22 0.006 286);
+  --popover-foreground: oklch(0.97 0 0);
+  --primary: oklch(0.97 0 0);
+  --primary-foreground: oklch(0.2 0.005 286);
+  --secondary: oklch(0.27 0.006 286);
+  --secondary-foreground: oklch(0.97 0 0);
+  --muted: oklch(0.27 0.006 286);
+  --muted-foreground: oklch(0.7 0.012 286);
+  --accent: oklch(0.27 0.006 286);
+  --accent-foreground: oklch(0.97 0 0);
+  --destructive: oklch(0.67 0.2 25);
+  --border: oklch(1 0 0 / 9%);
+  --input: oklch(1 0 0 / 14%);
+
+  --brand-l: 0.7;
+
+  /* Liquid glass */
+  --glass-bg: oklch(0.3 0.008 286 / 0.5);
+  --glass-border: oklch(1 0 0 / 0.14);
+  --glass-highlight: oklch(1 0 0 / 0.22);
+  --glass-sheen: oklch(1 0 0 / 0.1);
+  --glass-shadow: oklch(0 0 0 / 0.55);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --background: oklch(0.972 0.003 286);
+  --foreground: oklch(0.2 0.01 286);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.2 0.01 286);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.2 0.01 286);
+  --primary: oklch(0.22 0.01 286);
+  --primary-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.94 0.004 286);
+  --secondary-foreground: oklch(0.2 0.01 286);
+  --muted: oklch(0.94 0.004 286);
+  --muted-foreground: oklch(0.5 0.015 286);
+  --accent: oklch(0.94 0.004 286);
+  --accent-foreground: oklch(0.2 0.01 286);
+  --destructive: oklch(0.6 0.22 25);
+  --border: oklch(0 0 0 / 9%);
+  --input: oklch(0 0 0 / 13%);
+
+  --brand-l: 0.58;
+
+  --glass-bg: oklch(1 0 0 / 0.58);
+  --glass-border: oklch(0 0 0 / 0.07);
+  --glass-highlight: oklch(1 0 0 / 0.95);
+  --glass-sheen: oklch(1 0 0 / 0.7);
+  --glass-shadow: oklch(0.2 0.02 286 / 0.22);
+}
+
+/* Accent colour: only a hue changes */
+:root { --brand-h: 255; --brand: oklch(var(--brand-l) 0.19 var(--brand-h)); --ring: var(--brand); }
+:root[data-accent="blue"]   { --brand-h: 255; }
+:root[data-accent="purple"] { --brand-h: 295; }
+:root[data-accent="pink"]   { --brand-h: 355; }
+:root[data-accent="red"]    { --brand-h: 27; }
+:root[data-accent="orange"] { --brand-h: 55; }
+:root[data-accent="green"]  { --brand-h: 150; }
+
+/* Typefaces: UI chrome and writing are separate tokens */
+:root {
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI Variable Text", "Segoe UI", system-ui, Roboto, "Helvetica Neue", sans-serif;
+  --font-serif: "New York", ui-serif, "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --font-code: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-body: var(--font-ui);
+  --code: oklch(0.82 0.09 70);
+
+  --radius: 0.75rem;
+  --top-inset: env(safe-area-inset-top, 0px);
+  --day-h: 3.5rem;
+  --entry-h: 2.5rem;
+}
+:root[data-theme="light"] { --code: oklch(0.52 0.12 55); }
+:root[data-font="serif"] { --font-body: var(--font-serif); }
+:root[data-font="mono"]  { --font-body: var(--font-code); }
+
+@theme inline {
+  --font-sans: var(--font-ui);
+  --font-mono: var(--font-code);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-brand: var(--brand);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  input,
+  textarea,
+  [contenteditable="true"],
+  .entry-body,
+  .entry-body * {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  html { background: var(--background); }
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+    overscroll-behavior-y: none;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection { background: color-mix(in oklab, var(--brand) 38%, transparent); }
+  [hidden] { display: none !important; }
+}
+
+/* =====================================================================
+   Materials
+   ===================================================================== */
+@layer components {
+  /* Liquid glass: translucent, blurred, with a specular edge */
+  .glass {
+    position: relative;
+    background: var(--glass-bg);
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    backdrop-filter: blur(28px) saturate(180%);
+    border: 1px solid var(--glass-border);
+    box-shadow:
+      inset 0 1px 0 var(--glass-highlight),
+      inset 0 -1px 0 oklch(0 0 0 / 0.08),
+      0 12px 40px -10px var(--glass-shadow),
+      0 2px 8px -2px var(--glass-shadow);
+  }
+  .glass::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(155deg, var(--glass-sheen) 0%, transparent 45%);
+  }
+  @supports not (backdrop-filter: blur(1px)) {
+    .glass { background: color-mix(in oklab, var(--popover) 92%, transparent); }
+  }
+
+  /* Sticky header material */
+  .bar {
+    background: color-mix(in oklab, var(--background) 72%, transparent);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    backdrop-filter: blur(20px) saturate(160%);
+  }
+}
+
+/* =====================================================================
+   Page layout
+   ===================================================================== */
+.app-main {
+  min-height: 100dvh;
+  padding-bottom: calc(8rem + env(safe-area-inset-bottom, 0px));
+}
+.page {
+  --page-px: 1rem;
+  width: 100%;
+  max-width: 42rem;
+  margin-inline: auto;
+  padding-inline: var(--page-px);
+}
+@media (min-width: 640px) { .page { --page-px: 1.5rem; } }
+/* Leave room for the left-hand nav island */
+@media (min-width: 768px)  { .app-main { padding-left: 5.5rem; } }
+@media (min-width: 1024px) { .app-main { padding-left: 13rem; } }
+
+.large-title {
+  padding-top: calc(var(--top-inset) + 2.25rem);
+  margin-bottom: 1.5rem;
+  font-size: 2.125rem;
+  line-height: 1.1;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+/* iOS status-bar scrim so content doesn't collide with the clock */
+.safe-top-scrim {
+  position: fixed; inset: 0 0 auto 0; z-index: 35; height: var(--top-inset); pointer-events: none;
+  background: color-mix(in oklab, var(--background) 72%, transparent);
+  -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+}
+
+/* =====================================================================
+   Timeline
+   ===================================================================== */
+.day { scroll-margin-top: var(--top-inset); padding-top: 0.25rem; }
+.day + .day { margin-top: 1.25rem; }
+
+.day-head {
+  position: sticky; top: var(--top-inset); z-index: 20;
+  height: var(--day-h);
+  display: flex; align-items: center; justify-content: space-between;
+  margin-inline: calc(var(--page-px) * -1);
+  padding-inline: var(--page-px);
+  border-bottom: 1px solid var(--border);
+}
+.day-num {
+  display: grid; place-items: center; width: 2.25rem; height: 2.25rem; border-radius: 9999px;
+  font-size: 1.25rem; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums;
+}
+.day-num[data-today="true"] { background: var(--brand); color: white; }
+
+.entry-head {
+  position: sticky; top: calc(var(--top-inset) + var(--day-h)); z-index: 10;
+  height: var(--entry-h);
+  display: flex; align-items: center; gap: 0.75rem;
+  margin-inline: calc(var(--page-px) * -1);
+  padding-inline: var(--page-px);
+  background: color-mix(in oklab, var(--background) 86%, transparent);
+}
+.entry-time { font-size: 0.8125rem; font-variant-numeric: tabular-nums; color: var(--muted-foreground); flex: none; }
+.entry-title {
+  flex: 1; min-width: 0; padding: 0; border: 0; outline: 0; background: none;
+  font: inherit; font-size: 1.0625rem; font-weight: 600; letter-spacing: -0.015em; color: var(--foreground);
+}
+.entry-title::placeholder { color: var(--muted-foreground); opacity: 0; transition: opacity 0.15s; }
+.swipe:hover .entry-title::placeholder,
+.swipe:focus-within .entry-title::placeholder { opacity: 0.55; }
+
+.entry-body { padding-block: 0.25rem 1.75rem; }
+
+/* swipe to delete */
+.swipe { position: relative; overflow-x: clip; touch-action: pan-y; }
+.swipe-bg {
+  position: absolute; inset: 0; display: flex; align-items: center; padding-left: 1.25rem;
+  background: var(--destructive); color: white; opacity: 0; pointer-events: none;
+}
+.swipe-fg { position: relative; background: var(--background); transition: transform 0.28s cubic-bezier(0.2, 0.9, 0.25, 1); }
+.swipe-fg[data-dragging="true"] { transition: none; }
+
+/* =====================================================================
+   Live-preview editor
+   One block per line (fenced code is one block). Inactive blocks render as
+   formatted markdown; the block holding the caret shows its source with
+   dimmed markers, like Obsidian's live preview.
+   ===================================================================== */
+.live { outline: none; cursor: text; }
+.live-tail { height: 1.5rem; }
+
+.md-block {
+  position: relative;
+  min-height: 1.65em;
+  font-family: var(--font-body);
+  font-size: 1.0625rem;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: color-mix(in oklab, var(--foreground) 88%, transparent);
+  outline: none;
+}
+.md-block.h1, .md-block.h2, .md-block.h3, .md-block.h4, .md-block.h5, .md-block.h6 {
+  color: var(--foreground); font-weight: 600; line-height: 1.25; letter-spacing: -0.02em; margin-top: 0.6em;
+}
+.md-block.h1 { font-size: 1.7em; }
+.md-block.h2 { font-size: 1.4em; }
+.md-block.h3 { font-size: 1.2em; }
+.md-block.h4, .md-block.h5, .md-block.h6 { font-size: 1.05em; }
+
+.md-block p, .md-block h1, .md-block h2, .md-block h3,
+.md-block h4, .md-block h5, .md-block h6, .md-block blockquote { margin: 0; font: inherit; letter-spacing: inherit; color: inherit; }
+.md-block strong { color: var(--foreground); font-weight: 600; }
+.md-block a {
+  color: var(--brand); text-decoration: underline; text-underline-offset: 3px;
+  text-decoration-color: color-mix(in oklab, var(--brand) 35%, transparent);
+}
+.md-block a:hover { text-decoration-color: var(--brand); }
+.md-block blockquote { padding-left: 1rem; border-left: 2px solid var(--input); color: var(--muted-foreground); }
+.md-block code {
+  font: 0.875em var(--font-code); color: var(--code); background: var(--muted);
+  padding: 0.12em 0.4em; border-radius: 6px;
+}
+.md-block hr { border: 0; border-top: 1px solid var(--border); margin: 0.8em 0; }
+.md-block img { max-width: 100%; border-radius: var(--radius-lg); margin: 0.5em 0; }
+.md-block del { color: var(--muted-foreground); }
+
+.md-li { display: flex; padding-left: calc(var(--indent, 0) * 0.5em); }
+.md-marker { flex: none; min-width: 1.4em; color: var(--muted-foreground); }
+.md-li-body { min-width: 0; }
+
+.md-block.fence {
+  margin-block: 0.4em;
+  padding: 0.85rem 1rem;
+  font-family: var(--font-code);
+  font-size: 0.9em;
+  line-height: 1.55;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.md-block.fence pre { margin: 0; padding: 0; background: none; border: 0; overflow-x: auto; }
+.md-block.fence code { font: inherit; color: var(--foreground); background: none; padding: 0; }
+
+.md-placeholder { color: var(--muted-foreground); opacity: 0.6; }
+
+/* active block: transparent textarea over a styled backdrop with identical metrics */
+.md-stack { position: relative; }
+.md-backdrop, .md-input {
+  margin: 0; padding: 0; border: 0;
+  font: inherit; letter-spacing: inherit; line-height: inherit;
+  white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; tab-size: 4;
+}
+.md-backdrop { min-height: 1.65em; pointer-events: none; }
+.md-input {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  resize: none; outline: 0; overflow: hidden;
+  background: none; color: transparent; caret-color: var(--brand);
+}
+.md-input::placeholder { color: var(--muted-foreground); opacity: 0.6; }
+.md-input::selection { background: color-mix(in oklab, var(--brand) 38%, transparent); }
+
+/* Source styling only changes colour/stroke, never glyph widths */
+.md-backdrop .m  { color: color-mix(in oklab, var(--muted-foreground) 65%, transparent); }
+.md-backdrop .lh { color: var(--foreground); }
+.md-backdrop .lb { color: var(--foreground); -webkit-text-stroke: 0.6px currentColor; }
+.md-backdrop .li { color: color-mix(in oklab, var(--brand) 55%, var(--foreground)); }
+.md-backdrop .ls { color: var(--muted-foreground); text-decoration: line-through; }
+.md-backdrop .lc { color: var(--code); }
+.md-backdrop .lk { color: var(--brand); }
+.md-backdrop .lq { color: var(--muted-foreground); }
+
+/* =====================================================================
+   Settings rows (inset grouped list)
+   ===================================================================== */
+@layer components {
+  .set-label { margin: 0 0.25rem 0.5rem; font-size: 0.8125rem; font-weight: 500; color: var(--muted-foreground); }
+  .set-group { overflow: hidden; border-radius: 1rem; border: 1px solid var(--border); background: color-mix(in oklab, var(--card) 70%, transparent); }
+  .set-group > * + * { border-top: 1px solid var(--border); }
+  .set-row { display: flex; width: 100%; min-height: 3rem; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.5rem 1rem; text-align: left; }
+  button.set-row { cursor: pointer; transition: background 0.15s; }
+  button.set-row:hover { background: color-mix(in oklab, var(--foreground) 5%, transparent); }
+  .set-note { margin: 0.5rem 0.25rem 0; font-size: 0.8125rem; line-height: 1.45; color: var(--muted-foreground); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
