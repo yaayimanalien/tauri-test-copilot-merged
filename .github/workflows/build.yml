@@ -229,7 +229,15 @@ jobs:
         run: bun run tauri ios init --ci
 
       - name: Build unsigned iOS app
-        run: bun run tauri ios build --no-sign --ci
+        run: bun run tauri ios build --target aarch64 --no-sign --ci
+
+      - name: Upload unsigned iOS device IPA
+        uses: actions/upload-artifact@v5
+        with:
+          name: Daylight-iOS-${{ github.sha }}
+          path: src-tauri/gen/apple/build/**/*.ipa
+          if-no-files-found: error
+          retention-days: 14
 
   publish-release:
     name: Publish desktop release
@@ -256,6 +264,12 @@ jobs:
         with:
           name: Daylight-macOS-${{ github.sha }}
           path: release-assets/macos
+
+      - name: Download iOS device IPA
+        uses: actions/download-artifact@v5
+        with:
+          name: Daylight-iOS-${{ github.sha }}
+          path: release-assets/ios
 
       - name: Create or update GitHub Release
         env:
