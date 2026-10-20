@@ -15,7 +15,7 @@ bun run tauri dev
 
 ## Continuous integration
 
-The `Build Daylight apps` workflow runs on pushes and pull requests targeting `main`, version tags (`v*`), and manual dispatch. It checks and builds Windows, Linux, macOS, Android, and iOS on their native runners. Version-tag releases publish the Windows executable and installers, Linux DEB, and macOS DMG. Android APKs are retained as workflow artifacts for 14 days; the iOS build is unsigned and validated in CI only because Apple signing credentials are not configured.
+The `Build Daylight apps` workflow runs on pushes and pull requests targeting `main`, version tags (`v*`), and manual dispatch. It checks and builds Windows, Linux, macOS, Android, and iOS on their native runners. Manual runs can select one platform or build all platforms. Version-tag releases publish the Windows executable and installers, Linux DEB, and macOS DMG. Android APKs are retained as workflow artifacts for 14 days; the iOS build is unsigned and validated in CI only because Apple signing credentials are not configured.
 
 The macOS and mobile jobs generate platform-specific icons from the committed `src-tauri/icons/128x128.png` before building.
 

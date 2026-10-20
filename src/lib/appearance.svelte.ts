@@ -3,13 +3,19 @@
 export type Theme = "dark" | "light" | "system";
 export type Accent = "blue" | "purple" | "pink" | "red" | "orange" | "green";
 export type Font = "system" | "serif" | "mono";
+export type GlassStyle = "liquid" | "frosted" | "tinted";
 
 export const ACCENTS: Accent[] = ["blue", "purple", "pink", "red", "orange", "green"];
 
 const KEY = "daylight.appearance";
 
 function load() {
-  const base = { theme: "dark" as Theme, accent: "blue" as Accent, font: "system" as Font };
+  const base = {
+    theme: "dark" as Theme,
+    accent: "blue" as Accent,
+    font: "system" as Font,
+    glass: "liquid" as GlassStyle,
+  };
   try {
     return { ...base, ...JSON.parse(localStorage.getItem(KEY) ?? "{}") };
   } catch {
@@ -28,6 +34,7 @@ function apply() {
   root.dataset.theme = resolved;
   root.dataset.accent = appearance.accent;
   root.dataset.font = appearance.font;
+  root.dataset.glass = appearance.glass;
   root.classList.toggle("dark", resolved === "dark");
 }
 

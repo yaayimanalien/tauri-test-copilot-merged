@@ -19,25 +19,25 @@
   <h1 class="large-title">Stats</h1>
 
   <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-    <div class="rounded-2xl border bg-card/70 p-4">
+    <div class="glass rounded-2xl p-4">
       <div class="flex items-center gap-1.5 text-[0.8125rem] text-muted-foreground"><Flame class="size-3.5 text-brand" /> Streak</div>
       <div class="mt-2 text-[1.75rem] leading-none font-semibold tabular-nums">{s.currentStreak}<span class="ml-1 text-sm font-normal text-muted-foreground">days</span></div>
     </div>
-    <div class="rounded-2xl border bg-card/70 p-4">
+    <div class="glass rounded-2xl p-4">
       <div class="text-[0.8125rem] text-muted-foreground">Entries</div>
       <div class="mt-2 text-[1.75rem] leading-none font-semibold tabular-nums">{fmt(s.entries)}</div>
     </div>
-    <div class="rounded-2xl border bg-card/70 p-4">
+    <div class="glass rounded-2xl p-4">
       <div class="text-[0.8125rem] text-muted-foreground">Words</div>
       <div class="mt-2 text-[1.75rem] leading-none font-semibold tabular-nums">{fmt(s.words)}</div>
     </div>
-    <div class="rounded-2xl border bg-card/70 p-4">
+    <div class="glass rounded-2xl p-4">
       <div class="text-[0.8125rem] text-muted-foreground">Per entry</div>
       <div class="mt-2 text-[1.75rem] leading-none font-semibold tabular-nums">{s.avgWords}<span class="ml-1 text-sm font-normal text-muted-foreground">words</span></div>
     </div>
   </div>
 
-  <section class="mt-3 rounded-2xl border bg-card/70 p-5">
+  <section class="glass mt-3 rounded-2xl p-5">
     <div class="mb-4 flex items-baseline justify-between">
       <h2 class="font-semibold">Last 20 weeks</h2>
       <span class="text-[0.8125rem] text-muted-foreground">{s.activeDays} days written · best streak {s.longestStreak}</span>
@@ -55,7 +55,7 @@
     </div>
   </section>
 
-  <section class="mt-3 rounded-2xl border bg-card/70 p-5">
+  <section class="glass mt-3 rounded-2xl p-5">
     <div class="mb-4 flex items-baseline justify-between">
       <h2 class="font-semibold">Words per month</h2>
       <span class="text-[0.8125rem] text-muted-foreground">{s.thisMonth} entries this month</span>
@@ -73,7 +73,7 @@
   </section>
 
   <div class="mt-3 grid gap-3 sm:grid-cols-2">
-    <section class="rounded-2xl border bg-card/70 p-5">
+    <section class="glass rounded-2xl p-5">
       <h2 class="font-semibold">Time of day</h2>
       <p class="mb-4 text-[0.8125rem] text-muted-foreground">You write most around {hh(s.peakHour)}.</p>
       <div class="flex h-24 items-end gap-[3px]">
@@ -84,7 +84,7 @@
       <div class="mt-2 flex justify-between text-[0.6875rem] text-muted-foreground"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div>
     </section>
 
-    <section class="rounded-2xl border bg-card/70 p-5">
+    <section class="glass rounded-2xl p-5">
       <h2 class="font-semibold">Days of the week</h2>
       <p class="mb-4 text-[0.8125rem] text-muted-foreground">{s.busiestWeekday} is your busiest day.</p>
       <div class="space-y-1.5">

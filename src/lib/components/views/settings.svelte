@@ -12,7 +12,7 @@
   import ConfirmDialog from "$lib/components/confirm-dialog.svelte";
   import { journal } from "$lib/journal.svelte";
   import { api, errMsg } from "$lib/api";
-  import { ACCENTS, appearance, setAppearance, type Accent, type Font, type Theme } from "$lib/appearance.svelte";
+  import { ACCENTS, appearance, setAppearance, type Accent, type Font, type GlassStyle, type Theme } from "$lib/appearance.svelte";
 
   let { onlock }: { onlock: () => void } = $props();
 
@@ -25,6 +25,11 @@
     { id: "system", label: "Sans" },
     { id: "serif", label: "Serif" },
     { id: "mono", label: "Mono" },
+  ];
+  const glassStyles: { id: GlassStyle; label: string }[] = [
+    { id: "liquid", label: "Liquid" },
+    { id: "frosted", label: "Frosted" },
+    { id: "tinted", label: "Tinted" },
   ];
   // swatch colours mirror the --brand-h values in app.css
   const hue: Record<Accent, number> = { blue: 255, purple: 295, pink: 355, red: 27, orange: 55, green: 150 };
@@ -147,6 +152,10 @@
         <div class="set-row">
           <span>Writing font</span>
           {@render segmented(fonts, appearance.font, (v) => setAppearance({ font: v }), "Writing font")}
+        </div>
+        <div class="set-row">
+          <span>Glass material</span>
+          {@render segmented(glassStyles, appearance.glass, (v) => setAppearance({ glass: v }), "Glass material")}
         </div>
       </div>
     </section>
