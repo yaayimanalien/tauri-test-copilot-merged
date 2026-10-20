@@ -1,315 +1,265 @@
-# Daylight Implementation Plan
+# Liquid Glass Effect Implementation Plan
 
-## Project goal
+## Goal
 
-Build and harden the Daylight desktop/mobile journal app into a reliable, secure, production-ready release candidate. The app combines a Svelte 5 frontend with a Rust/Tauri backend for encrypted vault management, biometric quick unlock, and Google Drive synchronization.
+Implement the visual effect discussed earlier as a layered, cross-platform glass treatment for the app UI:
 
-## Current repository baseline
+- base frosted glass using CSS blur + transparency
+- optional refraction/bending effect using SVG displacement filter on Chromium
+- platform-specific enhancements for Windows and macOS where available
+- graceful fallbacks for non-supporting environments
 
-- Frontend: Svelte 5 + Vite + TypeScript + Tailwind v4 + shadcn-svelte-style UI
-- Desktop/mobile shell: Tauri 2
-- Backend: Rust 2021, structured around command handlers in `src-tauri/src/`
-- Core security model: Argon2id + XChaCha20-Poly1305 encrypted vault with password-based unlock
-- Secondary features: biometric unlock, Drive sync/restore, timeline/calendar/stats/settings views
-- Current status: architecture and core features are mostly present, but they need validation, cleanup, and production hardening before release
-
-## Success criteria
-
-The app is considered ready when:
-
-- vault creation, unlock, lock, and password change are stable across desktop platforms
-- all critical journaling flows work without data loss or corruption
-- Drive sync and restore are validated against real accounts and recovery flows
-- biometric unlock works reliably on supported platforms
-- CI builds succeed for all target platforms
-- user-facing edge cases are handled gracefully and tested
-- release candidates can be built and distributed without manual workarounds
+This plan covers only the visual effect itself. It does not include journal logic, vault security, Drive sync, or other product features.
 
 ## Scope
 
 ### In scope
 
-- security and data integrity
-- journaling workflow and persistence
-- vault lifecycle and background lock
-- UI/UX polish and reliability
-- Drive backup/restore flow
-- desktop/mobile packaging
-- CI and build validation
+- CSS glass panel styling
+- backdrop blur and translucent surfaces
+- subtle tint, highlight, and border treatment
+- optional SVG displacement for lens-like bending
+- hover/focus/pressed motion states
+- Windows Mica/Acrylic integration where appropriate
+- macOS native glass treatment when targeting macOS 26+
+- performance tuning and fallback behavior
 
 ### Out of scope
 
-- full general-purpose Markdown spec compliance beyond current app needs
-- broad feature expansions beyond journaling and sync
-- changing the overall product direction without product sign-off
+- encryption, journaling, authentication, or data architecture
+- app feature work unrelated to the glass treatment
+- full-page shader rendering for all app content
+- replacing the app layout or redesigning unrelated UI
+
+## Design objective
+
+The effect should feel like:
+
+- glassy and lightweight
+- readable without harming text contrast
+- smooth under motion and hover
+- visually premium but not overly expensive
+- robust across Windows and webview environments
+
+## Primary approach
+
+### 1. Baseline glass layer
+
+Implement the default look first using standard CSS:
+
+- translucent fills
+- `backdrop-filter: blur(...)`
+- soft borders and highlights
+- tinted overlays and inner shadow
+- subtle noise/gradient layer for depth
+- safe contrast management for text and controls
+
+This is the fallback path for all platforms and should be the default baseline.
+
+### 2. Real lens/refraction layer
+
+Add the SVG displacement filter as an enhancement when running in Chromium/WebView2-based environments:
+
+- apply displacement only to targeted glass surfaces
+- keep effect subtle and not overused
+- preserve readability and interaction usability
+- experiment on Windows first, where the target environment is currently strongest
+
+This step adds the “bending” or “liquid lens” feel without requiring full shader work.
+
+### 3. Native platform refinements
+
+Support native material layers where the platform supports them:
+
+- Windows 11: Mica/Acrylic backdrop treatment
+- macOS 26+: native glass material where available
+
+These are additive improvements, not required for the base effect.
+
+### 4. Advanced shader only if needed
+
+Use a custom GLSL/WebGL approach only for isolated cases where a stronger effect is required, such as:
+
+- animated hero background
+- custom glass panel with motion
+- a premium effect on a limited, performance-friendly surface
+
+Do not use shader rendering as the default for full app UI unless performance is validated.
 
 ## Workstreams
 
-### 1. Stabilize the core app lifecycle
-
-#### Objectives
-
-- Ensure the app behaves correctly during startup, unlock, lock, background idle, and quit/reopen cycles.
-- Remove ambiguity around which state is authoritative.
+### 1. Create a reusable glass component foundation
 
 #### Tasks
 
-- Confirm `App.svelte` startup flow and status gating for setup/unlock/journal screen.
-- Validate all entry lifecycle flows: create, update, autosave, delete, undo, and empty-entry cleanup.
-- Verify lock flow flushes pending writes and prevents locked commands from proceeding.
-- Add explicit error handling for state desynchronization and failed persistence.
-- Review invariants around the Rust `Mutex<AppState>` and the frontend `Journal` store.
+- define base glass tokens for:
+  - background opacity
+  - blur radius
+  - tint color
+  - border/highlight alpha
+  - shadow depth
+- create a reusable surface component for panels/cards/modals
+- test across light/dark variants and contrast-sensitive content
 
 #### Deliverables
 
-- stable unlock/setup lifecycle
-- deterministic save semantics
-- clear user-visible errors on persistence failures
+- standardized glass styling tokens
+- componentized backdrop glass surfaces
+- readable default theme settings
 
-#### Exit criteria
+#### Acceptance criteria
 
-- app opens, locks, and unlocks reliably
-- no corrupted entry data after rapid edits or forced lock
-- test cases cover lifecycle edge cases
+- panels remain legible on light and dark backgrounds
+- blur is visible but not excessive
+- component can be reused across multiple UI surfaces
 
-### 2. Harden vault security and persistence
-
-#### Objectives
-
-- Protect the encrypted vault against write corruption and invalid state.
-- Make password and data-key handling resilient and auditable.
+### 2. Add lens-like refraction using SVG displacement
 
 #### Tasks
 
-- Validate Argon2id parameters and password validation against documented constraints.
-- Review atomic write pattern for `vault.dat` and temp-file replacement.
-- Ensure key-zeroization is applied consistently to sensitive buffers.
-- Test legacy import behavior and plaintext backup handling.
-- Confirm migration rules and failure recovery for older vault formats.
+- identify which surfaces should receive distortion
+- create a small SVG filter with displacementMap
+- tune distortion strength, blur, and color mixing
+- ensure the effect stays subtle and does not degrade text readability
 
 #### Deliverables
 
-- secure vault format validation
-- atomic persistence model
-- verified import/migration path
+- SVG filter asset or inline filter definition
+- effect applied to targeted glass surfaces
+- Chromium-specific tuning pass
 
-#### Exit criteria
+#### Acceptance criteria
 
-- vault writes are atomic and recoverable
-- wrong-password and malformed-vault tests pass
-- legacy migration path is documented and tested
+- effect feels like subtle refraction rather than visual noise
+- text and controls remain readable
+- no obvious flicker or heavy CPU cost
 
-### 3. Improve the editor and journaling UX
-
-#### Objectives
-
-- Make the writing experience reliable and pleasant under real editing conditions.
-- Reduce frustration from autosave, undo, and rich-text-like editing behavior.
+### 3. Build interaction states
 
 #### Tasks
 
-- Verify live-editor behavior for long text, code blocks, and list/quote continuation.
-- Test cursor movement and block splitting/joining under common editing patterns.
-- Review autosave timing and debouncing so updates are not dropped or duplicated.
-- Ensure deleted entries and empty drafts behave predictably.
-- Validate title/body update ordering for same-entry rapid edits.
+- hover/focus/pressed states for glass panels
+- highlight movement or brightness pulse
+- border glow and depth transitions
+- preserve readability and prevent UI clutter
 
 #### Deliverables
 
-- stable editor interactions
-- consistent autosave and deletion UX
-- predictable draft lifecycle
+- polished interaction states
+- smooth motion and state transitions
+- consistent hover treatment across controls and surfaces
 
-#### Exit criteria
+#### Acceptance criteria
 
-- no duplicate/ghost entry writes
-- clear undo/delete behavior
-- editing remains smooth during long sessions
+- hover states are obvious but subtle
+- transitions feel smooth without visual lag
+- no jarring contrast changes
 
-### 4. Validate Drive sync and restore
-
-#### Objectives
-
-- Confirm the sync protocol is safe, deterministic, and recoverable.
-- Make Drive support production-usable with realistic testing.
+### 4. Platform tuning and fallbacks
 
 #### Tasks
 
-- Test OAuth flow, PKCE, state validation, and token refresh handling.
-- Validate sync reconciliation against local state, tombstones, timestamps, and stamps.
-- Run end-to-end tests with a real Google account and non-critical data.
-- Verify restore-only-on-empty-vault flow and recovery from partial failure.
-- Review app-properties metadata and check if any data leakage is acceptable.
+- apply Windows Mica/Acrylic backdrop if supported
+- test graceful fallback when native glass is unavailable
+- keep CSS glass as the fallback path for all environments
+- document which platforms use which visual stack
 
 #### Deliverables
 
-- drive sync test matrix
-- verified restore procedure
-- documented operational caveats
+- platform-aware glass strategy
+- documented fallback hierarchy
+- support matrix for effect quality by environment
 
-#### Exit criteria
+#### Acceptance criteria
 
-- sync works on representative real-world data
-- restore from Drive succeeds under supported conditions
-- no silent data loss during conflict resolution
+- each supported environment has a valid effect path
+- unsupported platforms still look polished and functional
+- no hard dependency on a single platform capability
 
-### 5. Prune and verify biometric unlock
-
-#### Objectives
-
-- Ensure biometric quick unlock is reliable and safe on supported devices.
-- Keep password fallback as the true authority.
+### 5. Performance and compatibility pass
 
 #### Tasks
 
-- Validate platform-specific quick-unlock flow for Windows, iOS, Android.
-- Review key storage and stale-key cleanup behavior.
-- Ensure biometric unlock cannot bypass a changed or invalid vault state.
-- Add explicit messaging for unsupported or unavailable biometric surfaces.
+- measure blur cost and panel count
+- limit displacement effect to small regions where it matters most
+- avoid excessive backdrop layers or repeated filters
+- validate against lower-power Windows hardware
 
 #### Deliverables
 
-- functioning biometric quick unlock on supported devices
-- graceful fallback to password unlock
+- optimized performance profile
+- effect guidelines for supported surfaces
+- compatibility notes for Chromium/WebView2 behavior
 
-#### Exit criteria
+#### Acceptance criteria
 
-- no stale biometric key locks an app into an unusable state
-- supported platforms unlock correctly with either password or biometrics
+- UI remains smooth during normal interaction
+- no obvious stutter on target machines
+- effect remains usable even under modest hardware constraints
 
-### 6. Strengthen default UI and visual quality
+## Recommended implementation order
 
-#### Objectives
+1. CSS glass baseline
+2. Reusable glass tokens and component surfaces
+3. Targeted SVG displacement enhancement
+4. Interaction polish
+5. Window/platform integration
+6. Performance tuning and final QA
 
-- Make the app feel polished, consistent, and trustworthy.
-- Keep platform theming and glass-like styling aligned with the app’s identity.
+## Milestones
 
-#### Tasks
+### Milestone 1: Glass baseline
 
-- Review `src/app.css` theme tokens and component consistency across screens.
-- Normalize spacing, cards, modal states, and focus styles.
-- Check visual accessibility across dark/light/system themes.
-- Audit selection behavior, text readability, and hover/focus states.
-- Optimize for desktop and mobile density without sacrificing clarity.
+- frosted glass styling works across app surfaces
+- readability and contrast are validated
+- componentized styling is in place
 
-#### Deliverables
+### Milestone 2: Refraction enhancement
 
-- consistent theme system
-- polished interface states
-- improved accessibility and readability
+- SVG displacement filter is tested and tuned
+- effect is applied only where it helps the visual identity
+- performance remains acceptable
 
-#### Exit criteria
+### Milestone 3: Platform polish
 
-- no broken or inconsistent styling in core flows
-- key screens are usable in all supported themes
+- Windows native treatment is layered in where available
+- macOS native material is considered for future use
+- fallbacks remain clean and intentional
 
-### 7. Create release-quality build and packaging pipeline
+### Milestone 4: Final QA
 
-#### Objectives
+- all major surfaces have consistent glass treatment
+- interaction states, hover states, and contrast are confirmed
+- final effect quality is accepted
 
-- Make CI and packaging deterministic and repeatable.
-- Reduce manual setup burden for building on all supported targets.
+## Acceptance criteria for the final effect
 
-#### Tasks
+- The app has a clear frosted/glass identity without becoming unreadable.
+- The effect feels premium but remains practical and performant.
+- There is a clear progression from CSS-only to optional SVG distortion to native platform extras.
+- The app still looks polished even when advanced effects are unavailable.
 
-- Run and fix the existing CI workflow for Windows/Linux/macOS/Android/iOS targets.
-- Add or tighten checks for `bun run check`, `bun run build`, and Rust tests.
-- Verify required icon generation and mobile initialization steps.
-- Document platform prerequisites and signing expectations.
-- Create a release checklist for artifact validation before distribution.
+## Risk areas
 
-#### Deliverables
+- Overusing blur or distortion reduces readability
+- Chromium-specific filters behave differently across versions
+- Too much motion can feel noisy or distracting
+- Full-page shader approaches can increase lag and complexity
 
-- validated build pipeline
-- release checklist
-- CI stability for all target matrix entries
+## Mitigations
 
-#### Exit criteria
-
-- apps build cleanly from a fresh checkout
-- packaging artifacts are generated without manual editing
-- release process is repeatable
-
-## Release milestones
-
-### Milestone 1: Stability pass
-
-- core journal lifecycle is stable
-- vault persistence is atomic and tested
-- startup/lock/unlock flows validated
-
-### Milestone 2: Security + sync pass
-
-- password and vault validation hardened
-- Drive sync and restore tested with real data
-- biometric quick unlock validated on supported platforms
-
-### Milestone 3: Product polish + release readiness
-
-- UI polish and accessibility review complete
-- packaging pipeline validated
-- release checklist complete
-- beta or production candidate can be built from main reliably
-
-## Risk register
-
-### High-risk items
-
-- Drive sync conflict handling with real-world data
-- data corruption during vault write or app interruption
-- stale biometric keys causing lockout or inconsistent unlock state
-- platform-specific build issues on macOS/iOS/Android
-
-### Mitigations
-
-- enforce atomic file replacement and backup validation
-- run end-to-end sync tests on noncritical data before release
-- keep password authentication as the guaranteed fallback
-- maintain a platform-specific build matrix in CI and verify all artifacts before release
-
-## Suggested execution order
-
-1. Fix lifecycle and persistence correctness
-2. Validate vault security and migration behavior
-3. Harden journal editor and autosave
-4. Test real Drive sync/restore flows
-5. Validate biometrics and fallback behavior
-6. Polish UI and accessibility
-7. Release packaging and CI stabilization
-
-## Recommended immediate next steps
-
-- Review the current `src-tauri/src` command contracts and refine the security boundaries.
-- Add a focused test matrix for vault creation, wrong-password rejection, and persistence failure handling.
-- Run real Drive sync against a nonessential Google account before turning it into a release promise.
-- Confirm the build matrix in CI matches the supported OS/mobile targets and fixes any blockers.
-
-## Documentation to maintain alongside the plan
-
-- security overview
-- vault format and recovery guide
-- Drive sync operational notes
-- platform build prerequisites
-- release checklist
-
-This implementation plan should be treated as the working roadmap for shipping Daylight as a trustworthy encrypted journal app rather than a feature prototype.
-
-## Proposed file additions
-
-- `IMPLEMENTATION_PLAN.md` — overall roadmap
-- `docs/release-checklist.md` — release validation steps
-- `docs/security-model.md` — vault and key handling overview
-- `docs/drive-sync-validation.md` — functional validation checklist for Google Drive
-
-## Ownership and cadence
-
-- Product/engineering review: weekly
-- Risk review: after each milestone
-- Decision gate before release: all critical flows must be validated on at least one clean build and one real-data test cycle
-
-This document should evolve with the codebase; when a task is completed, mark it as shipped and record the validation evidence in the project issues or release notes.
+- keep distortion subtle and localized
+- use CSS glass as the default path
+- reserve advanced effects for isolated surfaces
+- test on the actual target Windows environment early
 
 ## Final recommendation
 
-Prioritize correctness and data safety before feature polish. The app’s core promise is secure personal journaling, and that requires trustworthy vault lifecycle behavior and a validated backup/sync story before the product is considered ready for wider use.
+Treat this as a staged visual enhancement, not a full redesign:
 
+- start with CSS glass
+- add SVG displacement where it helps
+- layer native platform treatment only when appropriate
+- avoid shader-based full-page effects unless there is a clear need and a performance budget
+
+This keeps the visual goal achievable, maintainable, and compatible across platforms while still delivering the intended “liquid glass” feel.
