@@ -6,7 +6,7 @@ use chacha20poly1305::{
 };
 use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use zeroize::Zeroizing;
 
 const WRAP_AAD: &[u8] = b"daylight-wrap-v1";
@@ -31,7 +31,26 @@ pub struct Entry {
     pub id: String,
     pub title: String,
     pub body: String,
+    pub values: BTreeMap<String, String>,
     pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct JournalProperty {
+    pub id: String,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub show: bool,
+    pub options: Vec<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PropertySet {
+    pub properties: Vec<JournalProperty>,
     pub updated_at: i64,
 }
 
@@ -46,6 +65,8 @@ pub struct DriveConfig {
 #[serde(default)]
 pub struct Payload {
     pub entries: Vec<Entry>,
+    pub properties: Vec<JournalProperty>,
+    pub properties_at: i64,
     pub drive: Option<DriveConfig>,
     pub last_backup: i64,
     pub tombstones: HashMap<String, i64>,
@@ -200,6 +221,7 @@ mod tests {
                 id: "entry-1".into(),
                 title: "A private thought".into(),
                 body: "hello".into(),
+                values: BTreeMap::new(),
                 created_at: 1,
                 updated_at: 1,
             }],
@@ -215,8 +237,16 @@ mod tests {
     fn older_payloads_default_new_fields() {
         let payload: Payload = serde_json::from_str(r#"{"entries":[]}"#).unwrap();
         assert!(payload.drive.is_none());
+        assert!(payload.properties.is_empty());
+        assert_eq!(payload.properties_at, 0);
         assert_eq!(payload.last_backup, 0);
         assert!(payload.tombstones.is_empty());
         assert_eq!(payload.header_at, 0);
+
+        let entry: Entry = serde_json::from_str(
+            r#"{"id":"old","title":"title","body":"body","created_at":1,"updated_at":1}"#,
+        )
+        .unwrap();
+        assert!(entry.values.is_empty());
     }
 }

@@ -1,11 +1,12 @@
 import { toast } from "svelte-sonner";
 import { dayKey } from "./dates";
-import { api, errMsg, type RawEntry, type Status } from "./api";
+import { api, errMsg, type JournalProperty, type RawEntry, type Status } from "./api";
 
 export type Entry = {
   id: string;
   title: string;
   body: string;
+  values: Record<string, string>;
   created_at: number; // unix seconds
   /** The blank entry that is always waiting at the top of today. */
   draft?: boolean;
@@ -16,12 +17,13 @@ const nowTs = () => Math.floor(Date.now() / 1000);
 const SAVE_DELAY = 400;
 const SYNC_DELAY = 10_000;
 const SYNC_MIN_GAP = 20_000;
-const toEntry = (r: RawEntry): Entry => ({ id: r.id, title: r.title, body: r.body, created_at: r.created_at });
+const toEntry = (r: RawEntry): Entry => ({ id: r.id, title: r.title, body: r.body, values: r.values ?? {}, created_at: r.created_at });
 
 /* ---------- store ---------- */
 class Journal {
   /** Newest first. */
   entries = $state<Entry[]>([]);
+  properties = $state<JournalProperty[]>([]);
   /** Entry that should grab the caret as soon as it renders. */
   focusId = $state<string | null>(null);
   status = $state<Status | null>(null);
@@ -34,6 +36,8 @@ class Journal {
   private syncTimer: ReturnType<typeof setTimeout> | undefined;
   private lastSyncTry = 0;
   private active = false;
+  private propertiesWrite: Promise<void> = Promise.resolve();
+  private propertiesRevision = 0;
 
   /* ---------- lifecycle ---------- */
   async refreshStatus() {
@@ -44,6 +48,7 @@ class Journal {
   /** Call right after a successful unlock / setup / restore. */
   async open() {
     this.entries = (await api.list()).map(toEntry);
+    this.properties = await api.listProperties();
     this.saved = new Set(this.entries.map((e) => e.id));
     this.active = true;
     await this.refreshStatus();
@@ -61,6 +66,7 @@ class Journal {
     this.active = false;
     await api.lock().catch(() => {});
     this.entries = [];
+    this.properties = [];
     this.saved.clear();
     this.status = await api.status().catch(() => this.status);
   }
@@ -69,21 +75,36 @@ class Journal {
   /** Makes sure there is one blank entry at the top of today. */
   ensureDraft(): Entry {
     if (!this.entries.some((e) => e.draft)) {
-      this.entries.unshift({ id: uid(), title: "", body: "", created_at: nowTs(), draft: true });
+      this.entries.unshift({ id: uid(), title: "", body: "", values: {}, created_at: nowTs(), draft: true });
     }
     return this.entries.find((e) => e.draft)!;
   }
 
   /** Autosave target. A draft becomes a real entry on its first keystroke. */
-  update(id: string, patch: Partial<Pick<Entry, "title" | "body">>) {
+  update(id: string, patch: Partial<Pick<Entry, "title" | "body" | "values">>) {
     const e = this.entries.find((x) => x.id === id);
     if (!e) return;
     Object.assign(e, patch);
-    if (e.draft && (e.title.trim() || e.body.trim())) {
+    if (e.draft && (e.title.trim() || e.body.trim() || Object.keys(e.values).length)) {
       e.draft = false;
       e.created_at = nowTs();
     }
     if (!e.draft) this.schedule(id);
+  }
+
+  saveProperties(properties: JournalProperty[]) {
+    const previous = this.properties;
+    const revision = ++this.propertiesRevision;
+    this.properties = properties;
+    this.propertiesWrite = this.propertiesWrite
+      .catch(() => {})
+      .then(() => api.saveProperties(properties))
+      .catch((error) => {
+        if (revision === this.propertiesRevision) this.properties = previous;
+        toast.error("Couldn't save properties: " + errMsg(error));
+      });
+    this.scheduleSync();
+    return this.propertiesWrite;
   }
 
   private schedule(id: string) {
@@ -96,15 +117,15 @@ class Journal {
     this.timers.delete(id);
     const e = this.entries.find((x) => x.id === id);
     if (!e || e.draft) return Promise.resolve();
-    const { title, body, created_at } = $state.snapshot(e);
+    const { title, body, values, created_at } = $state.snapshot(e);
     // chain per entry so create always lands before update
     const prev = this.inflight.get(id) ?? Promise.resolve();
     const run = prev
       .catch(() => {})
       .then(async () => {
-        if (this.saved.has(id)) await api.update(id, title, body);
+        if (this.saved.has(id)) await api.update(id, title, body, values);
         else {
-          await api.create(title, body, id, created_at);
+          await api.create(title, body, id, created_at, values);
           this.saved.add(id);
         }
         this.scheduleSync();
@@ -116,6 +137,7 @@ class Journal {
 
   /** Write every pending edit now. */
   async flush() {
+    await this.propertiesWrite;
     await Promise.all([...this.timers.keys()].map((id) => this.save(id)));
     await Promise.all([...this.inflight.values()]);
   }
@@ -148,13 +170,13 @@ class Journal {
 
   /** Drop saved entries that were emptied out. The draft is kept. */
   tidy() {
-    const empty = this.entries.filter((e) => !e.draft && !e.title.trim() && !e.body.trim());
+    const empty = this.entries.filter((e) => !e.draft && !e.title.trim() && !e.body.trim() && !Object.keys(e.values).length);
     for (const e of empty) {
       clearTimeout(this.timers.get(e.id));
       this.timers.delete(e.id);
       this.deleteBackend(e.id);
     }
-    this.entries = this.entries.filter((e) => e.draft || e.title.trim() || e.body.trim());
+    this.entries = this.entries.filter((e) => e.draft || e.title.trim() || e.body.trim() || Object.keys(e.values).length);
   }
 
   /* ---------- Drive sync ---------- */
@@ -198,8 +220,10 @@ class Journal {
   private async reload() {
     if (!this.active) return;
     await this.flush();
-    const fresh = (await api.list()).map(toEntry);
+    const [rawEntries, freshProperties] = await Promise.all([api.list(), api.listProperties()]);
+    const fresh = rawEntries.map(toEntry);
     if (!this.active) return;
+    this.properties = freshProperties;
     const draft = this.entries.find((e) => e.draft);
     const local = new Map(this.entries.map((e) => [e.id, e]));
     const next = fresh.map((f) => {

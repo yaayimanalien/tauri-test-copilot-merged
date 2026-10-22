@@ -132,8 +132,10 @@ commands:
 | `setBiometric` | `enable_biometric_unlock` / `disable_biometric_unlock` | Configure quick unlock |
 | `changePassword` | `change_password` | Re-wrap the data key |
 | `list` | `list_entries` | Read entries from the unlocked payload |
-| `create` | `create_entry` | Add an entry |
-| `update` | `update_entry` | Change title/body |
+| `listProperties` | `list_properties` | Read configured entry properties |
+| `saveProperties` | `save_properties` | Save property definitions |
+| `create` | `create_entry` | Add an entry and its property values |
+| `update` | `update_entry` | Change title/body/property values |
 | `remove` | `delete_entry` | Delete an entry |
 | `driveConnect` | `drive_connect` | Connect a Google OAuth client |
 | `driveDisconnect` | `drive_disconnect` | Remove Drive configuration |
@@ -146,15 +148,18 @@ All vault-dependent commands reject calls made while locked.
 
 ### Journal model and autosave
 
-An entry has an ID, title, Markdown body, creation timestamp, and update
-timestamp. Timestamps are Unix seconds. Entries are sorted newest first in
+day. Older days are displayed oldest-first within each day, while today's
+An entry has an ID, title, Markdown body, a map of configured property values,
+creation timestamp, and update timestamp. Properties support text, number, and
+select values; property definitions are stored separately in the encrypted
+payload. Timestamps are Unix seconds. Entries are sorted newest first in
 storage/API results; the timeline groups them by the device's local calendar
 day. Older days are displayed oldest-first within each day, while today's
 entries are newest-first.
 
-The draft is a frontend-only entry until its title or body contains
-non-whitespace text. On the first edit it becomes a normal entry and receives
-its creation time. Each normal-entry update is debounced for 400 ms. Writes
+The draft is a frontend-only entry until its title, body, or property values
+contain content. On the first edit it becomes a normal entry and receives its
+creation time. Each normal-entry update is debounced for 400 ms. Writes
 for the same entry are chained so that a create operation completes before a
 subsequent update. Save/delete errors are surfaced with toast notifications.
 
@@ -193,6 +198,8 @@ the Rust HTTP client, not by arbitrary webview scripts.
 - **Statistics:** derives word totals, average words per entry, active days,
   current/longest streak, a 20-week activity grid, six months of word counts,
   writing hour distribution, and weekday distribution.
+- **Entry properties:** settings can add, rename, show/hide, change the type
+  of, edit options for, and remove text, number, or select properties.
 - **Settings:** exposes theme, accent and font preferences; biometric toggle;
   lock-now and password-change actions; and Drive connection/sync status.
 
@@ -216,8 +223,9 @@ data directory. It is a JSON object with:
 - `header`: version, KDF salt and parameters, and an encrypted/wrapped data key.
 - `data`: base64-encoded encrypted JSON payload.
 
-The decrypted payload contains entries, Drive credentials, the last-backup
-time, deletion tombstones, and the last header update time. The only intended
+The decrypted payload contains entries and their property values, property
+definitions, Drive credentials, the last-backup time, deletion tombstones, and
+the last header update time. The only intended
 plaintext metadata in the local vault file is the cryptographic header needed
 to derive and unwrap the data key; entry content and Drive credentials are
 inside the encrypted payload.
@@ -334,9 +342,11 @@ uses:
   password-wrapped DEK. This is not the decrypted data key.
 - `e-<entry-id>`: one individually encrypted entry per file.
 - `t-<entry-id>`: one individually encrypted deletion tombstone per file.
+- `properties.json`: the encrypted property definitions and their update time.
 
 Entry ciphertext uses associated data `daylight-entry-v1:<id>`; tombstones use
-`daylight-tomb-v1:<id>`; the marker uses `daylight-check-v1`. Google Drive
+`daylight-tomb-v1:<id>`; property definitions use `daylight-properties-v1`;
+the marker uses `daylight-check-v1`. Google Drive
 `appProperties` carry an update/deletion time (`u`) and a content stamp (`h`)
 used for synchronization and consistency checks. These metadata can reveal
 entry IDs and change times even though entry titles and bodies are encrypted.
@@ -367,9 +377,9 @@ to sync before locking.
 Restore is available only when no local vault exists. The app authorizes the
 user, fetches `header.json`, unwraps the data key with the supplied password,
 then decrypts and validates the latest entry/tombstone files. Tombstones are
-applied before the restored vault is written. The result is atomically created
-as the local vault and its Drive configuration is saved in the encrypted
-payload.
+applied before the restored vault is written. It also decrypts and validates
+the property definitions when present. The result is atomically created as the
+local vault and its Drive configuration is saved in the encrypted payload.
 
 **Operational caveat:** the implementation documentation notes that Google
 Drive synchronization and fresh-install restore have not yet been validated

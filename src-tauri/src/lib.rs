@@ -4,7 +4,7 @@ mod drive;
 mod keystore;
 mod sync;
 
-use crypto::{DriveConfig, Entry, Header, Payload, VaultFile};
+use crypto::{DriveConfig, Entry, Header, JournalProperty, Payload, PropertySet, VaultFile};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -408,6 +408,52 @@ fn list_entries(state: State<'_, Mutex<AppState>>) -> Result<Vec<Entry>, String>
     Ok(entries)
 }
 
+#[tauri::command]
+fn list_properties(state: State<'_, Mutex<AppState>>) -> Result<Vec<JournalProperty>, String> {
+    let state = lock_state(&state)?;
+    let session = state.session.as_ref().ok_or_else(|| "Locked".to_string())?;
+    Ok(session.payload.properties.clone())
+}
+
+#[tauri::command]
+fn save_properties(
+    state: State<'_, Mutex<AppState>>,
+    properties: Vec<JournalProperty>,
+) -> Result<(), String> {
+    let mut ids = HashSet::new();
+    for property in &properties {
+        if property.id.trim().is_empty() || property.name.trim().is_empty() {
+            return Err("Property names cannot be empty".into());
+        }
+        if !["text", "number", "select"].contains(&property.kind.as_str()) {
+            return Err("Property type is invalid".into());
+        }
+        if !ids.insert(property.id.clone()) {
+            return Err("Property ids must be unique".into());
+        }
+    }
+
+    let mut state = lock_state(&state)?;
+    let path = vault_path(&state.dir);
+    let session = state.session.as_mut().ok_or_else(|| "Locked".to_string())?;
+    let previous = session.payload.clone();
+    let now = now_seconds().max(session.payload.properties_at.saturating_add(1));
+    session.payload.properties = properties;
+    session.payload.properties_at = now;
+    for entry in &mut session.payload.entries {
+        let value_count = entry.values.len();
+        entry.values.retain(|id, _| ids.contains(id));
+        if entry.values.len() != value_count {
+            entry.updated_at = now.max(entry.updated_at.saturating_add(1));
+        }
+    }
+    if let Err(error) = persist(&path, session) {
+        session.payload = previous;
+        return Err(error);
+    }
+    Ok(())
+}
+
 #[tauri::command(rename_all = "camelCase")]
 fn create_entry(
     state: State<'_, Mutex<AppState>>,
@@ -415,6 +461,7 @@ fn create_entry(
     body: String,
     id: Option<String>,
     created_at: Option<i64>,
+    values: Option<std::collections::BTreeMap<String, String>>,
 ) -> Result<Entry, String> {
     let mut state = lock_state(&state)?;
     let path = vault_path(&state.dir);
@@ -423,11 +470,23 @@ fn create_entry(
     if session.payload.entries.iter().any(|entry| entry.id == id) {
         return Err("Entry already exists".into());
     }
+    let property_ids: HashSet<_> = session
+        .payload
+        .properties
+        .iter()
+        .map(|property| property.id.clone())
+        .collect();
+    let values = values
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|(property_id, _)| property_ids.contains(property_id))
+        .collect();
     let now = now_seconds();
     let entry = Entry {
         id,
         title,
         body,
+        values,
         created_at: created_at.unwrap_or(now),
         updated_at: now,
     };
@@ -452,10 +511,23 @@ fn update_entry(
     id: String,
     title: String,
     body: String,
+    values: Option<std::collections::BTreeMap<String, String>>,
 ) -> Result<Entry, String> {
     let mut state = lock_state(&state)?;
     let path = vault_path(&state.dir);
     let session = state.session.as_mut().ok_or_else(|| "Locked".to_string())?;
+    let property_ids: HashSet<_> = session
+        .payload
+        .properties
+        .iter()
+        .map(|property| property.id.clone())
+        .collect();
+    let values = values.map(|values| {
+        values
+            .into_iter()
+            .filter(|(property_id, _)| property_ids.contains(property_id))
+            .collect()
+    });
     let entry = session
         .payload
         .entries
@@ -465,6 +537,9 @@ fn update_entry(
     let previous = entry.clone();
     entry.title = title;
     entry.body = body;
+    if let Some(values) = values {
+        entry.values = values;
+    }
     entry.updated_at = now_seconds();
     let updated = entry.clone();
     if let Err(error) = persist(&path, session) {
@@ -669,6 +744,10 @@ async fn sync_now(state: State<'_, Mutex<AppState>>) -> Result<sync::SyncResult,
             synced.tombstones.remove(&current_entry.id);
         }
     }
+    if current.properties_at > snapshot.properties_at {
+        synced.properties = current.properties.clone();
+        synced.properties_at = current.properties_at;
+    }
     for id in current.tombstones.keys() {
         if !snapshot.tombstones.contains_key(id) || current.tombstones[id] > snapshot.tombstones[id]
         {
@@ -859,8 +938,40 @@ async fn restore_from_drive(
         entries.push(entry);
     }
     let entries = filter_restored_entries(entries, &tombstones);
+    let (properties, properties_at) = if let Some(file) = files
+        .iter()
+        .filter(|file| file.name == "properties.json")
+        .max_by_key(|file| {
+            file.app_properties
+                .get("u")
+                .and_then(|value| value.parse::<i64>().ok())
+                .unwrap_or_default()
+        }) {
+        let blob = client.download(&file.id).await?;
+        let encoded = std::str::from_utf8(&blob).map_err(|_| "Backup properties are corrupted")?;
+        let encrypted = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded)
+            .map_err(|_| "Backup properties are corrupted")?;
+        let plaintext = crypto::open(&dek, &encrypted, b"daylight-properties-v1")?;
+        let property_set: PropertySet =
+            serde_json::from_slice(&plaintext).map_err(|_| "Backup properties are corrupted")?;
+        let metadata_time = file
+            .app_properties
+            .get("u")
+            .and_then(|value| value.parse::<i64>().ok());
+        let metadata_stamp = file.app_properties.get("h");
+        if metadata_time != Some(property_set.updated_at)
+            || metadata_stamp != Some(&sync::property_set_stamp(&property_set)?)
+        {
+            return Err("Backup property metadata does not match its encrypted data".into());
+        }
+        (property_set.properties, property_set.updated_at)
+    } else {
+        (Vec::new(), 0)
+    };
     let payload = Payload {
         entries,
+        properties,
+        properties_at,
         tombstones,
         drive: Some(DriveConfig {
             client_id,
@@ -927,6 +1038,8 @@ pub fn run() {
             disable_biometric_unlock,
             lock,
             list_entries,
+            list_properties,
+            save_properties,
             create_entry,
             update_entry,
             delete_entry,

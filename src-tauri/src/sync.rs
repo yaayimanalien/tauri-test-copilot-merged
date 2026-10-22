@@ -1,5 +1,5 @@
 use crate::{
-    crypto::{self, Entry, Header, Payload},
+    crypto::{self, Entry, Header, Payload, PropertySet},
     drive::{DriveClient, FileMetadata},
 };
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
@@ -60,17 +60,33 @@ fn stamp(parts: &[&[u8]]) -> String {
 
 pub fn entry_stamp(entry: &Entry) -> String {
     let updated = entry.updated_at.to_string();
-    stamp(&[
-        entry.id.as_bytes(),
-        entry.title.as_bytes(),
-        entry.body.as_bytes(),
-        updated.as_bytes(),
-    ])
+    if entry.values.is_empty() {
+        stamp(&[
+            entry.id.as_bytes(),
+            entry.title.as_bytes(),
+            entry.body.as_bytes(),
+            updated.as_bytes(),
+        ])
+    } else {
+        let values = serde_json::to_vec(&entry.values).unwrap_or_default();
+        stamp(&[
+            entry.id.as_bytes(),
+            entry.title.as_bytes(),
+            entry.body.as_bytes(),
+            &values,
+            updated.as_bytes(),
+        ])
+    }
 }
 
 pub fn tombstone_stamp(id: &str, deleted_at: i64) -> String {
     let deleted_at = deleted_at.to_string();
     stamp(&[b"t", id.as_bytes(), deleted_at.as_bytes()])
+}
+
+pub fn property_set_stamp(property_set: &PropertySet) -> Result<String, String> {
+    let bytes = serde_json::to_vec(property_set).map_err(|error| error.to_string())?;
+    Ok(stamp(&[&bytes]))
 }
 
 fn properties(stamp: String, updated: i64) -> HashMap<String, String> {
@@ -280,6 +296,72 @@ pub async fn sync_payload(
         );
     }
 
+    let local_properties = PropertySet {
+        properties: payload.properties.clone(),
+        updated_at: payload.properties_at,
+    };
+    let local_properties_stamp = property_set_stamp(&local_properties)?;
+    let local_properties_bytes = seal_json(key, &local_properties, b"daylight-properties-v1")?;
+    let mut properties_downloaded = false;
+    let mut properties_uploaded = false;
+    if let Some(remote_properties) = files.get("properties.json") {
+        let remote_time = property_time(Some(remote_properties));
+        if remote_properties.app_properties.get("h") != Some(&local_properties_stamp)
+            && remote_time > payload.properties_at
+        {
+            let bytes = client.download(&remote_properties.id).await?;
+            let downloaded: PropertySet = open_json(key, &bytes, b"daylight-properties-v1")
+                .map_err(|_| "Drive properties are corrupted".to_string())?;
+            if downloaded.updated_at != remote_time
+                || remote_properties.app_properties.get("h")
+                    != Some(&property_set_stamp(&downloaded)?)
+            {
+                return Err("Drive property metadata does not match its encrypted data".into());
+            }
+            payload.properties = downloaded.properties;
+            payload.properties_at = downloaded.updated_at;
+            let valid_ids: HashSet<_> = payload
+                .properties
+                .iter()
+                .map(|property| property.id.clone())
+                .collect();
+            for entry in &mut payload.entries {
+                let value_count = entry.values.len();
+                entry.values.retain(|id, _| valid_ids.contains(id));
+                if entry.values.len() != value_count {
+                    entry.updated_at = downloaded
+                        .updated_at
+                        .max(entry.updated_at.saturating_add(1));
+                }
+            }
+            properties_downloaded = true;
+        } else if remote_properties.app_properties.get("h") != Some(&local_properties_stamp) {
+            let props = properties(local_properties_stamp, payload.properties_at);
+            client
+                .upload(
+                    Some(&remote_properties.id),
+                    "properties.json",
+                    "application/json",
+                    &local_properties_bytes,
+                    &props,
+                )
+                .await?;
+            properties_uploaded = true;
+        }
+    } else {
+        let props = properties(local_properties_stamp, payload.properties_at);
+        client
+            .upload(
+                None,
+                "properties.json",
+                "application/json",
+                &local_properties_bytes,
+                &props,
+            )
+            .await?;
+        properties_uploaded = true;
+    }
+
     let mut ids = HashSet::new();
     ids.extend(payload.entries.iter().map(|entry| entry.id.clone()));
     ids.extend(payload.tombstones.keys().cloned());
@@ -290,8 +372,8 @@ pub async fn sync_payload(
     }
 
     let mut result = SyncResult {
-        uploaded: 0,
-        downloaded: 0,
+        uploaded: if properties_uploaded { 1 } else { 0 },
+        downloaded: if properties_downloaded { 1 } else { 0 },
         removed: 0,
         unchanged: 0,
         at: SystemTime::now()
@@ -550,6 +632,38 @@ pub fn plan(local: ItemState<'_>, remote: ItemState<'_>) -> Vec<Action> {
 mod tests {
     use super::*;
     use crate::crypto::Entry;
+
+    #[test]
+    fn entry_stamp_preserves_legacy_hashes_and_includes_values() {
+        let entry = Entry {
+            id: "entry".into(),
+            title: "title".into(),
+            body: "body".into(),
+            created_at: 1,
+            updated_at: 2,
+            ..Entry::default()
+        };
+        let updated = entry.updated_at.to_string();
+        assert_eq!(
+            entry_stamp(&entry),
+            stamp(&[
+                entry.id.as_bytes(),
+                entry.title.as_bytes(),
+                entry.body.as_bytes(),
+                updated.as_bytes(),
+            ])
+        );
+
+        let mut with_value = entry;
+        with_value.values.insert("mood".into(), "calm".into());
+        assert_ne!(
+            entry_stamp(&with_value),
+            entry_stamp(&Entry {
+                values: Default::default(),
+                ..with_value.clone()
+            })
+        );
+    }
 
     #[test]
     fn local_tombstones_suppress_old_entries_and_expire_after_later_edits() {
