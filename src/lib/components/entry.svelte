@@ -67,6 +67,15 @@
     if (!el.contains(e.relatedTarget as Node | null)) journal.tidy();
   }
 
+  const visibleProperties = $derived(journal.properties.filter((property) => property.show || entry.values[property.id]));
+
+  function setValue(id: string, value: string) {
+    const values = { ...entry.values };
+    if (value.trim()) values[id] = value.trim();
+    else delete values[id];
+    journal.update(entry.id, { values });
+  }
+
   async function copy() {
     const text = (entry.title ? `# ${entry.title}\n\n` : "") + entry.body;
     try { await navigator.clipboard.writeText(text); toast("Copied as Markdown"); }
@@ -106,6 +115,34 @@
         <div class="entry-body">
           <LiveEditor bind:this={editor} value={entry.body} onchange={(body) => journal.update(entry.id, { body })} />
         </div>
+        {#if visibleProperties.length}
+          <div class="entry-properties">
+            {#each visibleProperties as property (property.id)}
+              <label class="entry-property">
+                <span>{property.name}</span>
+                {#if property.type === "select"}
+                  <select value={entry.values[property.id] ?? ""} onchange={(event) => setValue(property.id, event.currentTarget.value)}>
+                    <option value="">Not set</option>
+                    {#if entry.values[property.id] && !property.options.includes(entry.values[property.id])}
+                      <option value={entry.values[property.id]}>{entry.values[property.id]}</option>
+                    {/if}
+                    {#each property.options as option (option)}<option value={option}>{option}</option>{/each}
+                  </select>
+                {:else}
+                  <input
+                    type={property.type === "number" ? "number" : "text"}
+                    step={property.type === "number" ? "any" : undefined}
+                    inputmode={property.type === "number" ? "decimal" : undefined}
+                    aria-label={property.name}
+                    placeholder="Add value"
+                    value={entry.values[property.id] ?? ""}
+                    oninput={(event) => setValue(property.id, event.currentTarget.value)}
+                  />
+                {/if}
+              </label>
+            {/each}
+          </div>
+        {/if}
       </div>
     </div>
   </ContextMenu.Trigger>

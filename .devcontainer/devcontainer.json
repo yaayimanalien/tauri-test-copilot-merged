@@ -1,0 +1,66 @@
+{
+  "name": "Daylight",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "runArgs": [
+    "--init",
+    "--memory=4g",
+    "--cpus=2"
+  ],
+  "containerEnv": {
+    "CARGO_BUILD_JOBS": "2",
+    "CARGO_INCREMENTAL": "0",
+    "RUSTFLAGS": "-C debuginfo=0",
+    "BUN_INSTALL_CACHE_DIR": "/tmp/bun-cache",
+    "npm_config_cache": "/tmp/npm-cache"
+  },
+  "hostRequirements": {
+    "cpus": 2,
+    "memory": "8gb",
+    "storage": "32gb"
+  },
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": true,
+  "forwardPorts": [5173, 1420],
+  "portsAttributes": {
+    "5173": {
+      "label": "Vite dev server"
+    },
+    "1420": {
+      "label": "Tauri app"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "svelte.svelte-vscode",
+        "bradlc.vscode-tailwindcss",
+        "tamasfe.even-better-toml",
+        "ms-vscode.vscode-typescript-next",
+        "esbenp.prettier-vscode"
+      ],
+      "settings": {
+        "files.watcherExclude": {
+          "**/.git/**": true,
+          "**/.svn/**": true,
+          "**/.hg/**": true,
+          "**/node_modules/**": true,
+          "**/target/**": true,
+          "**/dist/**": true
+        },
+        "search.exclude": {
+          "**/node_modules/**": true,
+          "**/target/**": true,
+          "**/dist/**": true
+        },
+        "rust-analyzer.cargo.buildScripts.enable": true,
+        "rust-analyzer.check.command": "clippy",
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  },
+  "postCreateCommand": "bun install --frozen-lockfile && cargo fetch --manifest-path src-tauri/Cargo.toml"
+}

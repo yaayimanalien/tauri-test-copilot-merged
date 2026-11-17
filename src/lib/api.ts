@@ -18,7 +18,9 @@ export type SyncResult = {
   at: number;
   errors: string[];
 };
-export type RawEntry = { id: string; title: string; body: string; created_at: number; updated_at: number };
+export type PropertyType = "text" | "number" | "select";
+export type JournalProperty = { id: string; name: string; type: PropertyType; show: boolean; options: string[] };
+export type RawEntry = { id: string; title: string; body: string; values: Record<string, string>; created_at: number; updated_at: number };
 
 export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -40,9 +42,12 @@ export const api = {
   changePassword: (oldPassword: string, newPassword: string) =>
     call<void>("change_password", { oldPassword, newPassword }),
   list: () => call<RawEntry[]>("list_entries"),
-  create: (title: string, body: string, id?: string, createdAt?: number) =>
-    call<RawEntry>("create_entry", { title, body, id, createdAt }),
-  update: (id: string, title: string, body: string) => call<RawEntry>("update_entry", { id, title, body }),
+  listProperties: () => call<JournalProperty[]>("list_properties"),
+  saveProperties: (properties: JournalProperty[]) => call<void>("save_properties", { properties }),
+  create: (title: string, body: string, id?: string, createdAt?: number, values?: Record<string, string>) =>
+    call<RawEntry>("create_entry", { title, body, id, createdAt, values }),
+  update: (id: string, title: string, body: string, values: Record<string, string>) =>
+    call<RawEntry>("update_entry", { id, title, body, values }),
   remove: (id: string) => call<void>("delete_entry", { id }),
   driveConnect: (clientId: string, clientSecret: string) =>
     call<void>("drive_connect", { clientId, clientSecret }),

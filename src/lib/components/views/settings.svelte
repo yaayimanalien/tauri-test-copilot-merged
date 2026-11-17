@@ -6,12 +6,14 @@
   import Lock from "@lucide/svelte/icons/lock";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import Check from "@lucide/svelte/icons/check";
+  import Plus from "@lucide/svelte/icons/plus";
+  import Trash2 from "@lucide/svelte/icons/trash-2";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Switch } from "$lib/components/ui/switch";
   import ConfirmDialog from "$lib/components/confirm-dialog.svelte";
   import { journal } from "$lib/journal.svelte";
-  import { api, errMsg } from "$lib/api";
+  import { api, errMsg, type JournalProperty, type PropertyType } from "$lib/api";
   import { ACCENTS, appearance, setAppearance, type Accent, type Font, type Theme } from "$lib/appearance.svelte";
 
   let { onlock }: { onlock: () => void } = $props();
@@ -39,7 +41,46 @@
   let csec = $state("");
   let connecting = $state(false);
   let disconnectOpen = $state(false);
+  let newPropertyName = $state("");
+  let newPropertyType = $state<PropertyType>("text");
   const driveConnected = $derived(!!st?.driveConnected);
+
+  function addProperty() {
+    const name = newPropertyName.trim();
+    if (!name) return;
+    const property: JournalProperty = {
+      id: crypto.randomUUID(),
+      name,
+      type: newPropertyType,
+      show: true,
+      options: [],
+    };
+    void journal.saveProperties([...journal.properties, property]);
+    newPropertyName = "";
+  }
+
+  function patchProperty(id: string, patch: Partial<JournalProperty>) {
+    void journal.saveProperties(journal.properties.map((property) => {
+      if (property.id !== id) return property;
+      const next = { ...property, ...patch };
+      if (patch.type === "select") {
+        next.options = [...new Set([
+          ...next.options,
+          ...journal.entries.map((entry) => entry.values[id]).filter(Boolean),
+        ])];
+      }
+      return next;
+    }));
+  }
+
+  function setOptions(property: JournalProperty, raw: string) {
+    const options = [...new Set(raw.split(",").map((option) => option.trim()).filter(Boolean))];
+    patchProperty(property.id, { options });
+  }
+
+  function removeProperty(id: string) {
+    void journal.saveProperties(journal.properties.filter((property) => property.id !== id));
+  }
 
   const ago = (ts: number) => {
     const s = Math.max(0, Math.round(Date.now() / 1000 - ts));
@@ -152,6 +193,63 @@
     </section>
 
     <section>
+      <h2 class="set-label">Entry properties</h2>
+      <div class="set-group">
+        <form class="flex flex-wrap items-center gap-2 p-3" onsubmit={(event) => { event.preventDefault(); addProperty(); }}>
+          <Input class="min-w-36 flex-1" bind:value={newPropertyName} placeholder="Property name" aria-label="New property name" />
+          <select bind:value={newPropertyType} aria-label="New property type" class="h-9 rounded-md border border-input bg-background px-2 text-sm">
+            <option value="text">Text</option>
+            <option value="number">Number</option>
+            <option value="select">Select</option>
+          </select>
+          <button type="submit" aria-label="Add property" disabled={!newPropertyName.trim()} class="grid size-9 shrink-0 cursor-pointer place-items-center rounded-md bg-secondary text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50">
+            <Plus class="size-4" />
+          </button>
+        </form>
+        {#each journal.properties as property (property.id)}
+          <div class="space-y-2 px-3 py-3">
+            <div class="flex min-w-0 items-center gap-2">
+              <Input
+                class="min-w-0 flex-1"
+                value={property.name}
+                aria-label="Property name"
+                onchange={(event) => patchProperty(property.id, { name: event.currentTarget.value.trim() || property.name })}
+              />
+              <select
+                value={property.type}
+                aria-label="Property type"
+                onchange={(event) => patchProperty(property.id, { type: event.currentTarget.value as PropertyType })}
+                class="h-9 shrink-0 rounded-md border border-input bg-background px-2 text-sm"
+              >
+                <option value="text">Text</option>
+                <option value="number">Number</option>
+                <option value="select">Select</option>
+              </select>
+              <label class="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+                <input type="checkbox" checked={property.show} onchange={(event) => patchProperty(property.id, { show: event.currentTarget.checked })} />
+                Show
+              </label>
+              <button type="button" aria-label={`Delete ${property.name}`} onclick={() => removeProperty(property.id)} class="grid size-8 shrink-0 cursor-pointer place-items-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive">
+                <Trash2 class="size-4" />
+              </button>
+            </div>
+            {#if property.type === "select"}
+              <Input
+                value={property.options.join(", ")}
+                aria-label={`${property.name} options`}
+                placeholder="Options, separated by commas"
+                onchange={(event) => setOptions(property, event.currentTarget.value)}
+              />
+            {/if}
+          </div>
+        {/each}
+        {#if journal.properties.length === 0}
+          <p class="px-4 pb-4 text-sm text-muted-foreground">Add properties such as mood, place, or steps.</p>
+        {/if}
+      </div>
+    </section>
+
+    <section>
       <h2 class="set-label">Security</h2>
       <div class="set-group">
         {#if st?.biometricAvailable}
@@ -204,7 +302,7 @@
     <section>
       <h2 class="set-label">About</h2>
       <div class="set-group">
-        <div class="set-row"><span>Version</span><span class="text-[0.8125rem] text-muted-foreground">0.1.0</span></div>
+        <div class="set-row"><span>Version</span><span class="text-[0.8125rem] text-muted-foreground">0.2.0</span></div>
       </div>
     </section>
   </div>
