@@ -10,7 +10,14 @@ export type Status = {
   driveConnected: boolean;
   lastBackup: number | null;
 };
-export type SyncResult = { uploaded: number; downloaded: number; removed: number; unchanged: number; at: number };
+export type SyncResult = {
+  uploaded: number;
+  downloaded: number;
+  removed: number;
+  unchanged: number;
+  at: number;
+  errors: string[];
+};
 export type RawEntry = { id: string; title: string; body: string; created_at: number; updated_at: number };
 
 export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;

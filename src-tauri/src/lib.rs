@@ -160,11 +160,34 @@ fn persist(path: &Path, session: &Session) -> Result<(), String> {
     Ok(())
 }
 
+fn backup_vault(path: &Path) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "Vault directory is invalid".to_string())?;
+    let backup_path = path.with_file_name("vault.dat.bak");
+    let mut temp = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|e| format!("Couldn't create temporary vault backup: {e}"))?;
+    let mut source = fs::File::open(path)
+        .map_err(|e| format!("Couldn't read vault before header update: {e}"))?;
+    std::io::copy(&mut source, &mut temp)
+        .map_err(|e| format!("Couldn't write vault backup: {e}"))?;
+    temp.as_file()
+        .sync_all()
+        .map_err(|e| format!("Couldn't flush vault backup: {e}"))?;
+    temp.persist(&backup_path)
+        .map_err(|e| format!("Couldn't preserve previous vault: {}", e.error))?;
+    Ok(())
+}
+
 fn now_seconds() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64
+}
+
+fn deletion_time(updated_at: i64, old_tombstone: Option<i64>, now: i64) -> i64 {
+    now.max(updated_at).max(old_tombstone.unwrap_or_default())
 }
 
 fn password_valid(password: &str) -> Result<(), String> {
@@ -494,11 +517,10 @@ fn delete_entry(state: State<'_, Mutex<AppState>>, id: String) -> Result<(), Str
         .ok_or_else(|| "Entry not found".to_string())?;
     let deleted = session.payload.entries.remove(index);
     let old_tombstone = session.payload.tombstones.remove(&id);
-    if session.payload.drive.is_some() {
-        session.payload.tombstones.insert(id.clone(), now_seconds());
-    } else if let Some(deleted_at) = old_tombstone {
-        session.payload.tombstones.insert(id.clone(), deleted_at);
-    }
+    session.payload.tombstones.insert(
+        id.clone(),
+        deletion_time(deleted.updated_at, old_tombstone, now_seconds()),
+    );
     if let Err(error) = persist(&path, session) {
         session.payload.entries.insert(index, deleted);
         session.payload.tombstones.remove(&id);
@@ -687,6 +709,10 @@ async fn sync_now(state: State<'_, Mutex<AppState>>) -> Result<sync::SyncResult,
             .or_insert(*deleted_at);
     }
     synced.drive = current.drive.clone();
+    if header != session.header {
+        crypto::validate_header(&header)?;
+        backup_vault(&path)?;
+    }
     let previous_header = session.header.clone();
     let previous_payload = session.payload.clone();
     session.header = header;
@@ -942,6 +968,34 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deletion_time_keeps_tombstone_newer_than_entry_and_previous_delete() {
+        assert_eq!(deletion_time(12, Some(15), 14), 15);
+        assert_eq!(deletion_time(12, None, 14), 14);
+        assert_eq!(deletion_time(12, Some(10), 8), 12);
+    }
+
+    #[test]
+    fn backup_vault_copies_the_current_encrypted_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("vault.dat");
+        fs::write(&path, b"encrypted-vault").unwrap();
+
+        backup_vault(&path).unwrap();
+
+        assert_eq!(
+            fs::read(directory.path().join("vault.dat.bak")).unwrap(),
+            b"encrypted-vault"
+        );
+
+        fs::write(&path, b"updated-encrypted-vault").unwrap();
+        backup_vault(&path).unwrap();
+        assert_eq!(
+            fs::read(directory.path().join("vault.dat.bak")).unwrap(),
+            b"updated-encrypted-vault"
+        );
+    }
 
     #[test]
     fn restore_does_not_resurrect_deleted_entries() {

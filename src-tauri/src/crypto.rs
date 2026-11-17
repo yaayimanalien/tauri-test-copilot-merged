@@ -150,6 +150,20 @@ pub fn unlock_with_key(dek: &[u8; KEY_LEN], data: &str) -> Result<Payload, Strin
 }
 
 pub fn unwrap_key(header: &Header, password: &str) -> Result<Zeroizing<[u8; KEY_LEN]>, String> {
+    validate_header(header)?;
+    let salt = B64
+        .decode(&header.salt)
+        .map_err(|_| "Vault file is corrupted")?;
+    let kek = derive_key(password, &salt, header.m_kib, header.t, header.p)?;
+    let wrapped = B64
+        .decode(&header.wrapped_key)
+        .map_err(|_| "Vault file is corrupted")?;
+    let dek_vec = open(&kek, &wrapped, WRAP_AAD).map_err(|_| "Wrong password".to_string())?;
+    let dek_array: [u8; KEY_LEN] = dek_vec.try_into().map_err(|_| "Vault file is corrupted")?;
+    Ok(Zeroizing::new(dek_array))
+}
+
+pub fn validate_header(header: &Header) -> Result<(), String> {
     if header.v != 1
         || header.m_kib > 1_048_576
         || header.t > 16
@@ -160,19 +174,21 @@ pub fn unwrap_key(header: &Header, password: &str) -> Result<Zeroizing<[u8; KEY_
     {
         return Err("Unsupported or unsafe vault header".into());
     }
+    Params::new(header.m_kib, header.t, header.p, Some(KEY_LEN))
+        .map_err(|e| format!("Unsupported or unsafe vault header: {e}"))?;
     let salt = B64
         .decode(&header.salt)
         .map_err(|_| "Vault file is corrupted")?;
     if salt.len() != SALT_LEN {
         return Err("Vault file is corrupted".into());
     }
-    let kek = derive_key(password, &salt, header.m_kib, header.t, header.p)?;
     let wrapped = B64
         .decode(&header.wrapped_key)
         .map_err(|_| "Vault file is corrupted")?;
-    let dek_vec = open(&kek, &wrapped, WRAP_AAD).map_err(|_| "Wrong password".to_string())?;
-    let dek_array: [u8; KEY_LEN] = dek_vec.try_into().map_err(|_| "Vault file is corrupted")?;
-    Ok(Zeroizing::new(dek_array))
+    if wrapped.len() != NONCE_LEN + KEY_LEN + 16 {
+        return Err("Vault file is corrupted".into());
+    }
+    Ok(())
 }
 
 pub fn rewrap(dek: &[u8; KEY_LEN], password: &str) -> Result<Header, String> {
@@ -218,5 +234,20 @@ mod tests {
         assert_eq!(payload.last_backup, 0);
         assert!(payload.tombstones.is_empty());
         assert_eq!(payload.header_at, 0);
+    }
+
+    #[test]
+    fn header_validation_rejects_invalid_wrapped_key_length() {
+        let (mut header, _, _) = create("password", &Payload::default()).unwrap();
+        header.wrapped_key = B64.encode([0u8; NONCE_LEN + KEY_LEN + 15]);
+        assert!(validate_header(&header).is_err());
+    }
+
+    #[test]
+    fn header_validation_rejects_invalid_argon2_parameters() {
+        let (mut header, _, _) = create("password", &Payload::default()).unwrap();
+        header.m_kib = 8;
+        header.p = 16;
+        assert!(validate_header(&header).is_err());
     }
 }

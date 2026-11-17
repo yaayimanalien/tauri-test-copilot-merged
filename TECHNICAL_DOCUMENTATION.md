@@ -159,8 +159,8 @@ for the same entry are chained so that a create operation completes before a
 subsequent update. Save/delete errors are surfaced with toast notifications.
 
 Deleting an entry removes it from the visible list immediately and offers an
-Undo action. The Rust backend records a tombstone when Drive is configured so
-the deletion can propagate to other devices. Empty saved entries are removed
+Undo action. The Rust backend always records a tombstone so deletions made while
+Drive is disconnected can propagate after reconnecting. Empty saved entries are removed
 when the editor loses focus or the app locks.
 
 ### Markdown editor and rendering
@@ -343,8 +343,16 @@ entry IDs and change times even though entry titles and bodies are encrypted.
 
 The sync process paginates the app-data file listing, removes duplicate remote
 versions, verifies the vault marker, validates decrypted records against their
-IDs/timestamps/stamps, and reconciles local and remote items. Deletes are
-represented as tombstones so an old copy cannot silently reappear.
+IDs/timestamps/stamps, and reconciles local and remote items. Entry-level
+failures are reported while other entries continue syncing; successful local
+changes are still persisted. The settings view lists the failed items. Deletes
+are represented as tombstones so an old copy cannot silently reappear.
+
+A newer remote header is checked for supported KDF parameters and expected
+encoded field lengths before adoption. Because sync has no password, those
+structural checks cannot prove the header wraps the current data key. Before a
+remote header replaces the local one, the previous encrypted vault is preserved
+as `vault.dat.bak` for recovery.
 
 Conflict policy:
 

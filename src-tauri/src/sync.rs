@@ -38,6 +38,7 @@ pub struct SyncResult {
     pub removed: usize,
     pub unchanged: usize,
     pub at: i64,
+    pub errors: Vec<String>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -142,6 +143,163 @@ async fn delete_named(
     Ok(())
 }
 
+#[derive(Default)]
+struct ItemSyncOutcome {
+    uploaded: usize,
+    downloaded: usize,
+    unchanged: usize,
+    remove_local: bool,
+    adopted_tombstone: Option<i64>,
+    downloaded_entry: Option<Entry>,
+}
+
+async fn sync_item(
+    client: &DriveClient,
+    key: &[u8; 32],
+    id: &str,
+    local_entry: Option<&Entry>,
+    local_tomb: Option<i64>,
+    remote_entry: Option<&FileMetadata>,
+    remote_tomb: Option<&FileMetadata>,
+    files: &HashMap<String, FileMetadata>,
+) -> Result<ItemSyncOutcome, String> {
+    let entry_name = format!("e-{id}");
+    let tomb_name = format!("t-{id}");
+    let local_stamp = local_entry.map(entry_stamp);
+    let local_live = local_entry.map(|entry| ItemState::Live {
+        updated: entry.updated_at,
+        stamp: local_stamp.as_deref().unwrap_or_default(),
+    });
+    let remote_live_time = property_time(remote_entry);
+    let remote_dead_time = property_time(remote_tomb);
+    if remote_entry.is_some() && remote_tomb.is_some() {
+        if remote_dead_time >= remote_live_time {
+            delete_named(client, files, &entry_name).await?;
+        } else {
+            delete_named(client, files, &tomb_name).await?;
+        }
+    }
+
+    let local_state = match (local_live, local_tomb) {
+        (Some(ItemState::Live { updated, .. }), Some(deleted_at)) if deleted_at >= updated => {
+            ItemState::Dead { deleted_at }
+        }
+        (Some(live), _) => live,
+        (None, Some(deleted_at)) => ItemState::Dead { deleted_at },
+        (None, None) => ItemState::Unknown,
+    };
+    let remote_state = match (remote_entry, remote_tomb) {
+        (Some(_), Some(_)) if remote_dead_time >= remote_live_time => ItemState::Dead {
+            deleted_at: remote_dead_time,
+        },
+        (Some(file), _) => ItemState::Live {
+            updated: remote_live_time,
+            stamp: file
+                .app_properties
+                .get("h")
+                .map(String::as_str)
+                .unwrap_or_default(),
+        },
+        (None, Some(_)) => ItemState::Dead {
+            deleted_at: remote_dead_time,
+        },
+        (None, None) => ItemState::Unknown,
+    };
+    let actions = plan(local_state, remote_state);
+    let mut outcome = ItemSyncOutcome {
+        unchanged: usize::from(actions.contains(&Action::Unchanged)),
+        remove_local: actions.contains(&Action::RemoveLocalEntry),
+        ..ItemSyncOutcome::default()
+    };
+
+    if actions.contains(&Action::AdoptTombstone) {
+        let deleted_at = match remote_state {
+            ItemState::Dead { deleted_at } => deleted_at,
+            _ => unreachable!(),
+        };
+        if local_tomb != Some(deleted_at) {
+            outcome.downloaded += 1;
+        }
+        outcome.adopted_tombstone = Some(deleted_at);
+    }
+    if actions.contains(&Action::UploadEntry) {
+        if let Some(entry) = local_entry {
+            let blob = seal_json(key, entry, format!("daylight-entry-v1:{id}").as_bytes())?;
+            let props = properties(entry_stamp(entry), entry.updated_at);
+            client
+                .upload(
+                    remote_entry.map(|file| file.id.as_str()),
+                    &entry_name,
+                    "text/plain",
+                    &blob,
+                    &props,
+                )
+                .await?;
+            outcome.uploaded += 1;
+            if remote_tomb.is_some() {
+                delete_named(client, files, &tomb_name).await?;
+            }
+        }
+    }
+    if actions.contains(&Action::UploadTombstone) {
+        if let Some(deleted_at) = local_tomb {
+            let tombstone = Tombstone {
+                id: id.to_string(),
+                deleted_at,
+            };
+            let blob = seal_json(key, &tombstone, format!("daylight-tomb-v1:{id}").as_bytes())?;
+            let props = properties(tombstone_stamp(id, deleted_at), deleted_at);
+            client
+                .upload(
+                    remote_tomb.map(|file| file.id.as_str()),
+                    &tomb_name,
+                    "text/plain",
+                    &blob,
+                    &props,
+                )
+                .await?;
+            outcome.uploaded += 1;
+            if remote_entry.is_some() {
+                delete_named(client, files, &entry_name).await?;
+            }
+        }
+    }
+    if actions.contains(&Action::DeleteRemoteTombstone) {
+        delete_named(client, files, &tomb_name).await?;
+    }
+    if actions.contains(&Action::DeleteRemoteEntry) {
+        delete_named(client, files, &entry_name).await?;
+    }
+    if actions.contains(&Action::DownloadEntry) {
+        if let Some(file) = remote_entry {
+            let blob = client.download(&file.id).await?;
+            match open_json::<Entry>(key, &blob, format!("daylight-entry-v1:{id}").as_bytes()) {
+                Ok(entry)
+                    if entry.id == id
+                        && property_time(Some(file)) == entry.updated_at
+                        && file.app_properties.get("h") == Some(&entry_stamp(&entry)) =>
+                {
+                    outcome.downloaded_entry = Some(entry);
+                    outcome.downloaded += 1;
+                    if remote_tomb.is_some() {
+                        delete_named(client, files, &tomb_name).await?;
+                    }
+                }
+                Ok(_) => {
+                    return Err(
+                        "Google Drive entry metadata does not match its encrypted data".into(),
+                    )
+                }
+                Err(error) => return Err(format!("Google Drive entry is invalid: {error}")),
+            }
+        }
+    }
+    if actions.contains(&Action::DeleteRemoteTombstone) && !actions.contains(&Action::UploadEntry) {
+        delete_named(client, files, &tomb_name).await?;
+    }
+    Ok(outcome)
+}
+
 pub async fn sync_payload(
     client: &DriveClient,
     key: &[u8; 32],
@@ -197,9 +355,16 @@ pub async fn sync_payload(
                 .map(|id| (name.clone(), id.to_string(), file.clone()))
         })
         .collect();
+    let mut errors = Vec::new();
+    let mut invalid_tombstone_ids = HashSet::new();
     for (name, id, file) in tombstone_files {
-        let bytes = client.download(&file.id).await?;
-        match open_json::<Tombstone>(key, &bytes, format!("daylight-tomb-v1:{id}").as_bytes()) {
+        let tombstone = match client.download(&file.id).await {
+            Ok(bytes) => {
+                open_json::<Tombstone>(key, &bytes, format!("daylight-tomb-v1:{id}").as_bytes())
+            }
+            Err(error) => Err(error),
+        };
+        match tombstone {
             Ok(tombstone) if tombstone.id == id => {
                 files.insert(
                     name,
@@ -213,8 +378,16 @@ pub async fn sync_payload(
                     },
                 );
             }
-            Ok(_) => return Err("Google Drive contains a mismatched tombstone".into()),
-            Err(error) => return Err(format!("Google Drive tombstone is invalid: {error}")),
+            Ok(_) => {
+                invalid_tombstone_ids.insert(id.clone());
+                errors.push(format!(
+                    "{id}: Google Drive contains a mismatched tombstone"
+                ));
+            }
+            Err(error) => {
+                invalid_tombstone_ids.insert(id.clone());
+                errors.push(format!("{id}: Google Drive tombstone is invalid: {error}"));
+            }
         }
     }
 
@@ -250,6 +423,7 @@ pub async fn sync_payload(
             let bytes = client.download(&remote_header.id).await?;
             let downloaded: Header = serde_json::from_slice(&bytes)
                 .map_err(|_| "Drive key header is corrupted".to_string())?;
+            crypto::validate_header(&downloaded)?;
             *header = downloaded;
             payload.header_at = remote_time;
         } else if remote_header.app_properties.get("h") != Some(&local_stamp) {
@@ -298,196 +472,82 @@ pub async fn sync_payload(
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs() as i64,
+        errors: Vec::new(),
     };
-    let mut downloaded_entries = Vec::new();
-    let mut adopted_tombstones = HashMap::new();
-    let mut remove_local = HashSet::new();
 
     for id in ids {
+        if invalid_tombstone_ids.contains(&id) {
+            continue;
+        }
         let entry_name = format!("e-{id}");
         let tomb_name = format!("t-{id}");
         let remote_entry = files.get(&entry_name);
         let remote_tomb = files.get(&tomb_name);
         let local_entry = payload.entries.iter().find(|entry| entry.id == id).cloned();
         let local_tomb = payload.tombstones.get(&id).copied();
-        let local_stamp = local_entry.as_ref().map(entry_stamp);
-        let local_live = local_entry.as_ref().map(|entry| ItemState::Live {
-            updated: entry.updated_at,
-            stamp: local_stamp.as_deref().unwrap_or_default(),
-        });
-        let remote_live_time = property_time(remote_entry);
-        let remote_dead_time = property_time(remote_tomb);
-        if remote_entry.is_some() && remote_tomb.is_some() {
-            if remote_dead_time >= remote_live_time {
-                delete_named(client, &files, &entry_name).await?;
-            } else {
-                delete_named(client, &files, &tomb_name).await?;
-            }
-        }
-
-        let local_state = match (local_live, local_tomb) {
-            (Some(ItemState::Live { updated, .. }), Some(deleted_at)) if deleted_at >= updated => {
-                ItemState::Dead { deleted_at }
-            }
-            (Some(live), _) => live,
-            (None, Some(deleted_at)) => ItemState::Dead { deleted_at },
-            (None, None) => ItemState::Unknown,
-        };
-        let remote_state = match (remote_entry, remote_tomb) {
-            (Some(_), Some(_)) if remote_dead_time >= remote_live_time => ItemState::Dead {
-                deleted_at: remote_dead_time,
-            },
-            (Some(file), _) => ItemState::Live {
-                updated: remote_live_time,
-                stamp: file
-                    .app_properties
-                    .get("h")
-                    .map(String::as_str)
-                    .unwrap_or_default(),
-            },
-            (None, Some(_)) => ItemState::Dead {
-                deleted_at: remote_dead_time,
-            },
-            (None, None) => ItemState::Unknown,
-        };
-        let actions = plan(local_state, remote_state);
-        if actions.contains(&Action::Unchanged) {
-            result.unchanged += 1;
-        }
-        if actions.contains(&Action::RemoveLocalEntry) {
-            remove_local.insert(id.clone());
-        }
-        if actions.contains(&Action::AdoptTombstone) {
-            let deleted_at = match remote_state {
-                ItemState::Dead { deleted_at } => deleted_at,
-                _ => unreachable!(),
-            };
-            if local_tomb != Some(deleted_at) {
-                result.downloaded += 1;
-            }
-            adopted_tombstones.insert(id.clone(), deleted_at);
-        }
-        if actions.contains(&Action::UploadEntry) {
-            if let Some(entry) = &local_entry {
-                let blob = seal_json(key, entry, format!("daylight-entry-v1:{id}").as_bytes())?;
-                let props = properties(entry_stamp(entry), entry.updated_at);
-                client
-                    .upload(
-                        remote_entry.map(|file| file.id.as_str()),
-                        &entry_name,
-                        "text/plain",
-                        &blob,
-                        &props,
-                    )
-                    .await?;
-                result.uploaded += 1;
-                if remote_tomb.is_some() {
-                    delete_named(client, &files, &tomb_name).await?;
+        match sync_item(
+            client,
+            key,
+            &id,
+            local_entry.as_ref(),
+            local_tomb,
+            remote_entry,
+            remote_tomb,
+            &files,
+        )
+        .await
+        {
+            Ok(outcome) => {
+                result.uploaded += outcome.uploaded;
+                result.downloaded += outcome.downloaded;
+                result.unchanged += outcome.unchanged;
+                if outcome.remove_local {
+                    if payload.entries.iter().any(|entry| entry.id == id) {
+                        result.removed += 1;
+                    }
+                    payload.entries.retain(|entry| entry.id != id);
                 }
-            }
-        }
-        if actions.contains(&Action::UploadTombstone) {
-            if let Some(deleted_at) = local_tomb {
-                let tombstone = Tombstone {
-                    id: id.clone(),
-                    deleted_at,
-                };
-                let blob = seal_json(key, &tombstone, format!("daylight-tomb-v1:{id}").as_bytes())?;
-                let props = properties(tombstone_stamp(&id, deleted_at), deleted_at);
-                client
-                    .upload(
-                        remote_tomb.map(|file| file.id.as_str()),
-                        &tomb_name,
-                        "text/plain",
-                        &blob,
-                        &props,
-                    )
-                    .await?;
-                result.uploaded += 1;
-                if remote_entry.is_some() {
-                    delete_named(client, &files, &entry_name).await?;
+                if let Some(deleted_at) = outcome.adopted_tombstone {
+                    payload
+                        .tombstones
+                        .entry(id.clone())
+                        .and_modify(|local| *local = (*local).max(deleted_at))
+                        .or_insert(deleted_at);
                 }
-            }
-        }
-        if actions.contains(&Action::DeleteRemoteTombstone) {
-            delete_named(client, &files, &tomb_name).await?;
-        }
-        if actions.contains(&Action::DeleteRemoteEntry) {
-            delete_named(client, &files, &entry_name).await?;
-        }
-        if actions.contains(&Action::DownloadEntry) {
-            if let Some(file) = remote_entry {
-                let blob = client.download(&file.id).await?;
-                match open_json::<Entry>(key, &blob, format!("daylight-entry-v1:{id}").as_bytes()) {
-                    Ok(entry)
-                        if entry.id == id
-                            && property_time(Some(file)) == entry.updated_at
-                            && file.app_properties.get("h") == Some(&entry_stamp(&entry)) =>
-                    {
-                        downloaded_entries.push(entry);
-                        result.downloaded += 1;
-                        if remote_tomb.is_some() {
-                            delete_named(client, &files, &tomb_name).await?;
+                if let Some(entry) = outcome.downloaded_entry {
+                    let protected = payload
+                        .tombstones
+                        .get(&entry.id)
+                        .is_some_and(|deleted_at| *deleted_at >= entry.updated_at);
+                    let locally_newer = payload
+                        .entries
+                        .iter()
+                        .find(|local| local.id == entry.id)
+                        .is_some_and(|local| local.updated_at > entry.updated_at);
+                    if !protected && !locally_newer {
+                        payload.tombstones.remove(&entry.id);
+                        if let Some(local) = payload
+                            .entries
+                            .iter_mut()
+                            .find(|local| local.id == entry.id)
+                        {
+                            *local = entry;
+                        } else {
+                            payload.entries.push(entry);
                         }
                     }
-                    Ok(_) => {
-                        return Err(
-                            "Google Drive entry metadata does not match its encrypted data".into(),
-                        )
-                    }
-                    Err(error) => return Err(format!("Google Drive entry is invalid: {error}")),
                 }
             }
-        }
-        if actions.contains(&Action::DeleteRemoteTombstone)
-            && !actions.contains(&Action::UploadEntry)
-        {
-            delete_named(client, &files, &tomb_name).await?;
-        }
-    }
-
-    for id in remove_local {
-        let existed = payload.entries.iter().any(|entry| entry.id == id);
-        payload.entries.retain(|entry| entry.id != id);
-        if existed {
-            result.removed += 1;
-        }
-    }
-    for (id, deleted_at) in adopted_tombstones {
-        payload
-            .tombstones
-            .entry(id)
-            .and_modify(|local| *local = (*local).max(deleted_at))
-            .or_insert(deleted_at);
-    }
-    for entry in downloaded_entries {
-        let protected = payload
-            .tombstones
-            .get(&entry.id)
-            .is_some_and(|deleted_at| *deleted_at >= entry.updated_at);
-        let locally_newer = payload
-            .entries
-            .iter()
-            .find(|local| local.id == entry.id)
-            .is_some_and(|local| local.updated_at > entry.updated_at);
-        if protected || locally_newer {
-            continue;
-        }
-        payload.tombstones.remove(&entry.id);
-        if let Some(local) = payload
-            .entries
-            .iter_mut()
-            .find(|local| local.id == entry.id)
-        {
-            *local = entry;
-        } else {
-            payload.entries.push(entry);
+            Err(error) => errors.push(format!("{id}: {error}")),
         }
     }
     payload.last_backup = result.at;
     for duplicate in duplicate_files {
-        client.delete(&duplicate.id).await?;
+        if let Err(error) = client.delete(&duplicate.id).await {
+            errors.push(format!("Duplicate file cleanup: {error}"));
+        }
     }
+    result.errors = errors;
     Ok(result)
 }
 

@@ -23,6 +23,7 @@ pub struct FileMetadata {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct FileList {
     #[serde(default)]
     files: Vec<FileMetadata>,
@@ -348,5 +349,21 @@ impl DriveClient {
             return Ok(());
         }
         Err(http_error("delete", response.status()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_list_deserializes_google_page_token() {
+        let response = r#"{
+            "files": [{"id": "file-1", "name": "entry-1"}],
+            "nextPageToken": "page-2"
+        }"#;
+        let page: FileList = serde_json::from_str(response).unwrap();
+        assert_eq!(page.files.len(), 1);
+        assert_eq!(page.next_page_token.as_deref(), Some("page-2"));
     }
 }

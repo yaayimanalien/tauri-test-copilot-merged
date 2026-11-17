@@ -179,11 +179,13 @@ class Journal {
     try {
       await this.flush();
       const r = await api.sync();
-      this.syncError = "";
+      this.syncError = r.errors.join("\n");
       if (this.status) this.status.lastBackup = r.at;
       const pulled = r.downloaded + r.removed;
       if (pulled) await this.reload();
-      if (pulled) toast(`Synced ${pulled} ${pulled === 1 ? "change" : "changes"} from Drive`);
+      if (r.errors.length) {
+        toast.error(`Some items could not be synced. See Backup settings for details.`);
+      } else if (pulled) toast(`Synced ${pulled} ${pulled === 1 ? "change" : "changes"} from Drive`);
       else if (!silent) toast(r.uploaded ? `Synced, uploaded ${r.uploaded} ${r.uploaded === 1 ? "change" : "changes"}` : "Already up to date");
     } catch (err) {
       this.syncError = errMsg(err);

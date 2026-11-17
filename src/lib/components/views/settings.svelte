@@ -192,9 +192,9 @@
             <Button class="w-full" disabled={connecting} onclick={connect}>{connecting ? "Waiting for Google…" : "Connect Google Drive"}</Button>
           </div>
         {:else}
-          <div class="set-row"><span>Google Drive</span><span class="text-[0.8125rem] text-muted-foreground">{journal.syncError ? "Sync failed" : st?.lastBackup ? "Synced " + ago(st.lastBackup) : "Not synced yet"}</span></div>
+          <div class="set-row"><span>Google Drive</span><span class="text-[0.8125rem] text-muted-foreground">{journal.syncError ? "Sync completed with issues" : st?.lastBackup ? "Synced " + ago(st.lastBackup) : "Not synced yet"}</span></div>
           <button type="button" class="set-row text-brand" disabled={journal.syncing} onclick={() => journal.sync(false)}>{journal.syncing ? "Syncing…" : "Sync now"}</button>
-          {#if journal.syncError}<p class="px-4 pb-3 text-[0.8125rem] text-destructive">{journal.syncError}</p>{/if}
+          {#if journal.syncError}<p class="whitespace-pre-line break-all px-4 pb-3 text-[0.8125rem] text-destructive">{journal.syncError}</p>{/if}
           <button type="button" class="set-row text-destructive" onclick={() => (disconnectOpen = true)}>Disconnect</button>
         {/if}
       </div>
